@@ -27,6 +27,7 @@ class FocalLoss(nn.Module):
         self.reduction = reduction
         self.ignore_index = ignore_index
 
+        # Z: register_buffer stores tensors that are not parameters, but should be part of the module's state
         if alpha is None:
             self.register_buffer("alpha", None)
         elif isinstance(alpha, (float, int)):
@@ -50,6 +51,7 @@ class FocalLoss(nn.Module):
         if logits.size(0) != targets.size(0):
             raise ValueError("Batch size de logits et targets incompatible")
 
+        # Z: reduction is a post-processing step, return as is or apply mean/sum
         # cross entropy par échantillon, sans réduction
         ce_loss = F.cross_entropy(
             logits,
@@ -61,6 +63,7 @@ class FocalLoss(nn.Module):
         # masque ignore_index
         valid_mask = targets != self.ignore_index
 
+        # Z: if all targets are ignore_index, return zero
         if valid_mask.sum() == 0:
             return logits.new_zeros(())
 
@@ -74,9 +77,12 @@ class FocalLoss(nn.Module):
         if self.alpha is None:
             alpha_t = 1.0
         else:
+            # Z: if alpha is scalar
             if self.alpha.ndim == 0:
                 alpha_t = self.alpha.to(logits.device)
+            # Z: if alpha is 1D, aka per-class weights
             elif self.alpha.ndim == 1:
+                # Z: check if the number of classes matches
                 if self.alpha.numel() != logits.size(1):
                     raise ValueError(f"alpha a {self.alpha.numel()} classes, mais logits a {logits.size(1)} classes")
                 alpha_t = self.alpha.to(logits.device)[targets_valid]

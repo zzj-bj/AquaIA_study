@@ -10,12 +10,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+# Z: Dataset defines how is the dataset looks like and how to reference it
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from PIL import Image
 from transformers import AutoImageProcessor
 
+# Z: balanced_accuracy_score is the average of recall obtained on each class
 from sklearn.metrics import confusion_matrix, classification_report, f1_score, balanced_accuracy_score
 import matplotlib.pyplot as plt
 
@@ -24,9 +26,11 @@ from common_dinov3 import DinoV3Classifier
 # =========================
 # CONFIG
 # =========================
+# Z: checkpoint folder to be used for inference
 RUN_DIR = Path("/home/sarah.laroui/Bureau/AQUA-IA/Python_code/Results/test_dinov3/focal_none/")
 CHECKPOINT_NAME = "best.pt"
 
+# Z: input directory for inference
 INPUT_DIR = Path("/home/sarah.laroui/Bureau/AQUA-IA/Python_code/Data/AQUA-IA_dataset/FIN-Benthic_clean_splited/test")
 
 LABELED_BY_SUBFOLDER = True
@@ -35,6 +39,7 @@ BATCH_SIZE = 64
 NUM_WORKERS = 4
 USE_AMP = True
 
+# Z: output directory for inference results
 OUT_DIR_NAME = "inference_outputs"
 WRITE_TENSORBOARD = True
 
@@ -132,9 +137,11 @@ def compute_class_weights_from_class_to_idx_and_samples(
     num_classes: int,
 ) -> torch.Tensor:
     counts = torch.zeros(num_classes, dtype=torch.float32)
+    # Z: count samples per class
     for _, y in samples:
         counts[y] += 1.0
 
+    # Z: if any class has zero samples
     if torch.any(counts == 0):
         missing = (counts == 0).nonzero(as_tuple=True)[0].tolist()
         raise RuntimeError(f"Impossible de calculer alpha auto: certaines classes sont absentes du dataset évalué: {missing}")
@@ -186,14 +193,17 @@ class LabeledFolderDataset(Dataset):
     """
 
     def __init__(self, root: Path, class_to_idx: Dict[str, int], processor):
+        # Z: samples (path_to_image, class_index)
         self.samples: List[Tuple[Path, int]] = []
         self.processor = processor
         self.class_to_idx = class_to_idx
 
+        # Z: for each class
         for cls_name, cls_idx in class_to_idx.items():
             cls_dir = root / cls_name
             if not cls_dir.exists():
                 continue
+            # Z: for each file in the class directory
             for p in cls_dir.iterdir():
                 if p.is_file() and p.suffix.lower() in EXTS:
                     self.samples.append((p, cls_idx))
@@ -208,6 +218,7 @@ class LabeledFolderDataset(Dataset):
         path, y = self.samples[i]
         img = Image.open(path).convert("RGB")
         x = self.processor(images=img, return_tensors="pt")["pixel_values"].squeeze(0)
+        # Z: return x (tensor image), y (class index), path (string)
         return x, y, str(path)
 
 
@@ -220,6 +231,7 @@ class UnlabeledRecursiveDataset(Dataset):
         self.paths: List[Path] = []
         self.processor = processor
 
+        # Z: for each file in the root directory and subdirectories
         for p in root.rglob("*"):
             if p.is_file() and p.suffix.lower() in EXTS:
                 self.paths.append(p)
@@ -234,6 +246,7 @@ class UnlabeledRecursiveDataset(Dataset):
         path = self.paths[i]
         img = Image.open(path).convert("RGB")
         x = self.processor(images=img, return_tensors="pt")["pixel_values"].squeeze(0)
+        # Z: return x (tensor image), path (string)
         return x, str(path)
 
 
@@ -254,8 +267,10 @@ def predict_labeled(model, loader, criterion, device, use_amp: bool):
         with torch.cuda.amp.autocast(enabled=(use_amp and device.type == "cuda")):
             logits = model(x)
             loss = criterion(logits, y)
+            # Z: probs = softmax(logits) in class dimension
             probs = torch.softmax(logits, dim=1)
 
+        # Z: prediction = class index with highest logit score
         preds = logits.argmax(dim=1)
         conf = probs.max(dim=1).values
 
@@ -294,6 +309,7 @@ def predict_unlabeled(model, loader, device, use_amp: bool):
     return np.asarray(all_pred), np.asarray(all_prob), paths
 
 
+# Z: plot confusion matrix with normalization by true class (rows)
 def plot_confusion_matrix(cm: np.ndarray, class_names: List[str], title: str) -> plt.Figure:
     cm = cm.astype(np.float64)
     row_sums = cm.sum(axis=1, keepdims=True)
@@ -374,6 +390,7 @@ def main():
 
         loss, acc, y_true, y_pred, y_conf, paths = predict_labeled(model, loader, criterion, device, USE_AMP)
 
+        # Z: compute metrics, report, confusion matrix
         macro_f1 = float(f1_score(y_true, y_pred, average="macro"))
         bal_acc = float(balanced_accuracy_score(y_true, y_pred))
         cm = confusion_matrix(y_true, y_pred, labels=list(range(num_classes)))
@@ -401,6 +418,7 @@ def main():
             "eval_loss_name": str(ckpt["config"].get("loss_name", "ce")),
             "eval_focal_gamma": ckpt["config"].get("focal_gamma", None),
         }
+        # Z: save metrics.json, classification_report.txt, confusion_matrix.npy
         (out_root / "metrics.json").write_text(
             json.dumps(metrics, indent=2, ensure_ascii=False),
             encoding="utf-8",
@@ -408,11 +426,13 @@ def main():
         (out_root / "classification_report.txt").write_text(report, encoding="utf-8")
         np.save(out_root / "confusion_matrix.npy", cm)
 
+        # Z: save confusion_matrix.png
         fig = plot_confusion_matrix(cm, classes, "Confusion Matrix (normalized by true)")
         fig_path = out_root / "confusion_matrix.png"
         fig.savefig(fig_path, dpi=200)
         plt.close(fig)
 
+        # Z: save predictions.csv
         rows = []
         for p, yt, yp, conf in zip(paths, y_true.tolist(), y_pred.tolist(), y_conf.tolist()):
             rows.append(
@@ -429,6 +449,7 @@ def main():
             header=["path", "true_class", "pred_class", "confidence"],
         )
 
+        # Z: save TensorBoard
         if writer is not None:
             writer.add_scalar("loss", loss, 0)
             writer.add_scalar("acc", acc, 0)
@@ -458,11 +479,13 @@ def main():
 
         pred_idx, conf, paths = predict_unlabeled(model, loader, device, USE_AMP)
 
+        # Z: save predictions.csv
         rows = []
         for p, pi, c in zip(paths, pred_idx.tolist(), conf.tolist()):
             rows.append([p, idx_to_class[int(pi)], f"{float(c):.6f}"])
         write_csv(out_root / "predictions.csv", rows, header=["path", "pred_class", "confidence"])
 
+        # Z: save metrics.json
         metrics = {
             "mode": "unlabeled_recursive",
             "input_dir": str(INPUT_DIR),
@@ -476,6 +499,7 @@ def main():
             encoding="utf-8",
         )
 
+        # Z: save TensorBoard
         if writer is not None:
             writer.add_text("info", json.dumps(metrics, indent=2, ensure_ascii=False), 0)
             writer.add_text("model/model_id", model_id, 0)
@@ -484,6 +508,7 @@ def main():
         print("[DONE] Unlabeled inference terminé.")
         print(json.dumps(metrics, indent=2, ensure_ascii=False))
 
+    # Z: close TensorBoard writer
     if writer is not None:
         writer.close()
         print(f"[DONE] TensorBoard: tensorboard --logdir {out_root / 'tb'}")

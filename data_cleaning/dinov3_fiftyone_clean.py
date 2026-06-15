@@ -4,6 +4,8 @@ from PIL import Image
 import torch
 from transformers import AutoImageProcessor, AutoModel
 
+# Z: AutoImageProcessor: preprocess images across different models
+# Z: Automodel: instantiate models' architecture and load pretrained weights
 import fiftyone as fo
 import fiftyone.brain as fob
 
@@ -29,16 +31,22 @@ BATCH_SIZE = 16
 
 @torch.inference_mode()
 def compute_embeddings(model, processor, filepaths, device):
+    # Z: For each image, load, convert to RGB
     imgs = [Image.open(p).convert("RGB") for p in filepaths]
+    # Z: Processe images (resize, normalize, etc) and convert to PyTorch tensors
     inputs = processor(images=imgs, return_tensors="pt")
     inputs = {k: v.to(device) for k, v in inputs.items()}
 
     outputs = model(**inputs)
 
+    # Z: Get the last hidden state (features), of shape (batch_size, num of patches' embeddings=num_token per img, token_dim=hidden_dim)
     feats = outputs.last_hidden_state  # (B, T, D)
+    # Z: Mean pooling across patches to get a single embedding vector per image
     emb = feats.mean(dim=1)  # (B, D)
+    # Z: Normalize the embeddings across dimension D to have relative uniform values (p=2 L2 normalization)
     emb = torch.nn.functional.normalize(emb, p=2, dim=1)
 
+    # Z: detach from the computation graph, move to CPU and convert to numpy float32
     return emb.detach().cpu().numpy().astype(np.float32)
 
 
@@ -50,21 +58,27 @@ def main():
 
     device = torch.device("cuda:0")
     print("Using GPU:", torch.cuda.get_device_name(0))
+    # Z: Use cudnn auto-tuner to find the best algorithm for the hardware (speed up for fixed input sizes)
     torch.backends.cudnn.benchmark = True
 
+
     # 1) Charger dataset "dossier par classe"
+    # Z: If the dataset already exists in FiftyOne, load it
     if fo.dataset_exists(DATASET_NAME):
         dataset = fo.load_dataset(DATASET_NAME)
         print("Dataset chargé:", DATASET_NAME)
+    # Z: Otherwise create it from the directory structure
     else:
         dataset = fo.Dataset.from_dir(
             dataset_dir=DATA_DIR,
+            # Z: This importer assigns labels based on subfolder names
             dataset_type=fo.types.ImageClassificationDirectoryTree,
             name=DATASET_NAME,
         )
         print("Dataset importé:", DATASET_NAME)
 
     print(dataset)
+    # Z: Print all classe labels
     print("Classes:", dataset.distinct("ground_truth.label"))
 
     # 2) Charger modèle
@@ -72,6 +86,7 @@ def main():
     # model = AutoModel.from_pretrained(MODEL_ID).to(device).eval()
     processor = AutoImageProcessor.from_pretrained(
         MODEL_ID,
+        # Z: Use local HF login
         token=True,  # force l’usage du token local HF
     )
 
@@ -84,6 +99,7 @@ def main():
     model.eval()
 
     # 3) Calcul embeddings (robuste) + stockage
+    # Z: Get all image filepaths from the dataset
     filepaths = dataset.values("filepath")
     n = len(filepaths)
     print("Nb images:", n)
@@ -96,6 +112,7 @@ def main():
         # Convertir en listes Python (plus sûr pour FiftyOne)
         all_embs.extend([e.tolist() for e in emb])
 
+        # Z: Print progress every 20 batches
         if i % (BATCH_SIZE * 20) == 0:
             print(f"Embeddings: {i}/{n}")
 
@@ -104,6 +121,7 @@ def main():
     print("Embeddings sauvegardés dans:", EMB_FIELD)
 
     # Sécurité : uniquement samples avec embeddings
+    # Z: Create a view, filter samples in the dataset where the field named EMB_FIELD is not None
     view = dataset.match(fo.ViewField(EMB_FIELD) != None)  # noqa: E711
     print("Nb samples avec embeddings:", len(view))
 
@@ -127,12 +145,14 @@ def main():
 
     print("Champs UMAP écrits:" + model_name + "_umap_x / " + model_name + "_umap_y")
 
+    # 4b) Similarity
     if model_name + "_sim" in dataset.list_brain_runs():
         dataset.delete_brain_run(model_name + "_sim")
+        # Z: save for safety
         dataset.save()
         print("Ancien brain run supprimé: " + model_name + "_sim")
 
-    # 4b) Similarity
+    # Z: Compute similarity between samples based on their embeddings
     fob.compute_similarity(
         view,
         embeddings=EMB_FIELD,
@@ -141,6 +161,7 @@ def main():
     print("Similarity index créé: brain_key=" + model_name + "_sim")
 
     # 4c) Uniqueness
+    # Z: Compute uniqueness scores for each sample based on their embeddings
     fob.compute_uniqueness(
         view,
         embeddings=EMB_FIELD,

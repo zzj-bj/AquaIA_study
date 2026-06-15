@@ -1,9 +1,12 @@
 # common_dinov3.py
+# Z: to solve Forward Reference issues in type hints (Ex for return types referring to the class itself)
 from __future__ import annotations
 
 import json
+# Z: to get platform info (OS)
 import platform
 import random
+# Z: to parse strings
 import re
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -12,6 +15,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+# Z: to instantiate models' architecture and load pretrained weights
 from transformers import AutoModel
 
 
@@ -20,6 +24,7 @@ def ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
 
+# Z: convert an object to json and write with utf-8
 def write_json(path: Path, obj) -> None:
     path.write_text(json.dumps(obj, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -36,6 +41,7 @@ def set_seed(seed: int) -> None:
 def get_env_info() -> Dict:
     return {
         "python": platform.python_version(),
+        # Z: Ex Windows-XX or Linux-XX
         "platform": platform.platform(),
         "pytorch": torch.__version__,
         "cuda_available": torch.cuda.is_available(),
@@ -46,21 +52,29 @@ def get_env_info() -> Dict:
 
 
 # ---------- Freeze / unfreeze ----------
+# Z: to infer block indices from parameter names (Ex ".encoder.layers.3." -> 3)
 def infer_block_index(name: str) -> Optional[int]:
     patterns = [
+        # Z: Ex .encoder.layers.3.
         r"\.encoder\.layers\.(\d+)\.",
+        # Z: Ex .encoder.layer.3.
         r"\.encoder\.layer\.(\d+)\.",
+        # Z: Ex .layers.3.
         r"\.layers\.(\d+)\.",
+        # Z: Ex .layer.3.
         r"\.layer\.(\d+)\.",
+        # Z: Ex .blocks.3.
         r"\.blocks\.(\d+)\.",
     ]
     for p in patterns:
         m = re.search(p, name)
         if m:
+            # Z: return the group 1 (the first parenthesis)
             return int(m.group(1))
     return None
 
 
+# Z: disable gradient computation and params updates for all params, aka freeze all params
 def freeze_all(model: nn.Module) -> None:
     for p in model.parameters():
         p.requires_grad = False
@@ -105,24 +119,31 @@ class DinoV3Classifier(nn.Module):
         super().__init__()
         self.model_id = model_id
         self.backbone = AutoModel.from_pretrained(model_id)
+        # Z: model uses a tensor of dimension [hidden] to represent a CLS or a patch
         hidden = self.backbone.config.hidden_size
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
         self.head = nn.Linear(hidden, num_classes)
 
+    # Z: pixel_values is the input image tensor of shape (B, C, H, W)
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
         out = self.backbone(pixel_values=pixel_values)
+        # Z: pooler_output: takes the [CLS] token from the last hidden state,
+        # Z: passes it through a linear layer and an activation, of shape (B, hidden)
         if hasattr(out, "pooler_output") and out.pooler_output is not None:
             feat = out.pooler_output
         else:
+            # Z: [batch_size, seq_len, hidden], take CLS token
             feat = out.last_hidden_state[:, 0, :]
         return self.head(self.dropout(feat))
 
 
 # ---------- Checkpoint helpers ----------
+# Z: payload is a dict contaitng info to be saved
 def save_checkpoint(path: Path, payload: Dict) -> None:
     ensure_dir(path.parent)
     torch.save(payload, path)
 
 
+# Z: load the checkpoint and return the payload dict, map to the specified device (cpu or gpu)
 def load_checkpoint(path: Path, device: torch.device) -> Dict:
     return torch.load(path, map_location=device)
