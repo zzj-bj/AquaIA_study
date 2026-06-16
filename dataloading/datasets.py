@@ -18,17 +18,30 @@ from detection.utils.config_utils import load_class_names
 
 
 # TODO : AutoAugment: Learning Augmentation Strategies from Data
+# Z: AutoAugment automatically searches for the best augmentation policies
+# Z: transform a regular Python function into a definition function for DALI data processing pipeline
 @pipeline_def
 def create_detection_pipeline(dataset_src, stats, img_size=640, device="gpu"):
+    """Z: DALI data preprocessing pipeline, used to read, decode, resize, and normalize JPG images
+    then output them for training."""
+    # Z: external_source() gets data from outside of DALI pipeline
+    # Z: here dataset_src = self.dataset.__call__ = JpgDALIDataset.__call__
+    # Z: and JpgDALIDataset.__call__() returns a tuple of (encoded_img, idx)
+    # Z: encoded = encoded image, idx = index of the image in the dataset
     encoded, idx = fn.external_source(
         source=dataset_src,
+        # Z: num_outputs=2 means the external source returns two outputs, encoded image and index
         num_outputs=2,
+        # Z: batch=False means the external source returns one sample at a time, not a batch of samples
         batch=False,
+        # Z: parallel=True means the external source can be called in parallel by multiple threads
         parallel=True,
         dtype=[types.UINT8, types.INT64],
     )
+    # Z: mixed = read/prepare on CPU, decode on GPU
     decoding_device = "mixed" if device == "gpu" else device
     # TODO : add cache/padding to the decoding part to avoid memory re-allocation
+    # Z: decode images to RGB
     images = fn.decoders.image(encoded, device=decoding_device, output_type=types.RGB)
     images = fn.resize(
         images,
@@ -36,6 +49,7 @@ def create_detection_pipeline(dataset_src, stats, img_size=640, device="gpu"):
         resize_y=img_size,
         device=device,
     )
+    # Z: transform to float, normalize to zero mean and unit variance, and change layout from HWC to CHW
     inputs = fn.crop_mirror_normalize(
         images,
         device=device,
@@ -44,6 +58,7 @@ def create_detection_pipeline(dataset_src, stats, img_size=640, device="gpu"):
         mean=stats["mean"],
         std=stats["std"],
     )
+    # Z: inputs is DALI tensor
     return inputs, idx
 
 
@@ -55,6 +70,19 @@ class BaseDetectionDataset:
     - label loading
     - statistics (mean/std)
     - normalization
+
+    Z: This class handles dataset metadata and target loading:
+    - loads normalization statistics from stats.npy
+    - loads class names and number of classes
+    - builds a sorted list of label files
+    - parses YOLO-format label files into class labels and bounding boxes
+    - stores targets as torch tensors rather than DALI tensors
+
+    For the non-DALI path, it also provides helpers to:
+    - convert numpy images to torch tensors
+    - normalize image tensors using dataset statistics
+
+    Subclasses are responsible for image loading and path-specific preprocessing.
     """
 
     def __init__(
@@ -79,13 +107,18 @@ class BaseDetectionDataset:
         #     raise FileNotFoundError(f"Data split directory not found: {self.dataset_root / self.data_split}")
 
     def __len__(self):
+        # Z: self.target_files apprears after load_targets() is called
         return len(self.target_files)
 
     def load_stats(self) -> None:
+        """Z: load dataset mean/std statistics and scale them from [0, 1] to [0, 255]
+        for normalization of decoded JPG pixels."""
         # /!\ Expect stats to be computed in normalized pixels in [0, 1] range
         stats_path = self.dataset_root / self.stats_file
 
         if stats_path.exists():
+            # Z: allow_pickle=True allows loading Python objects like dict, .npy file may be a dict
+            # Z: .item() transforms to a dict
             stats = np.load(stats_path, allow_pickle=True).item()
             self.stats = {
                 "mean": stats["mean"] * np.float32(255.0),
@@ -99,10 +132,17 @@ class BaseDetectionDataset:
             raise FileNotFoundError(f"Stats file not found: {stats_path}")
 
     def to_tensor(self, img: np.ndarray) -> torch.Tensor:
+        """Z: np [H,W,C] -> pytorch [C,H,W]. Only for non-DALI situations."""
+        # Z: not called in actual class
         return torch.from_numpy(img).float().permute(2, 0, 1)
 
     @staticmethod
+    # Z: static method don't need class param
     def _numeric_sort_key(path: Path):
+        """Z: generate a sort key for file paths,
+        purely numeric filenames are sorted by their numerical value,
+        non-numeric filenames follow numeric ones and are sorted alphabetically."""
+        # Z: get file name without extension
         stem = path.stem
         return (0, int(stem)) if stem.isdigit() else (1, stem)
 
@@ -116,6 +156,7 @@ class BaseDetectionDataset:
         return int(class_id), [float(x_center), float(y_center), float(width), float(height)]
 
     def read_target(self, label_path: str):
+        """Z: read label files and parse targets (class labels and bbox coords)."""
         labels = []
         boxes = []
         if label_path is not None and os.path.exists(label_path):
@@ -134,23 +175,35 @@ class BaseDetectionDataset:
         }
 
     def load_targets(self) -> None:
+        """Z: load label files, parse targets, store as tensors on the specified device."""
         self.target_files = self.get_sorted_target_files()
         if not self.target_files:
             raise FileNotFoundError(f"No label files found under {self.dataset_root / 'labels' / self.data_split}")
         self.targets = [self.read_target(path) for path in self.target_files]
 
     def get_targets(self, batch) -> List[dict]:
+        """Z: get targets (label bbox) for a batch of samples accroding to image indices."""
+        # Z: not called in actual class
+        # Z: DALIRaggedIterator sometimes returns a list, where the first element is the actual batch dict
         if isinstance(batch, list):
             batch = batch[0]
+        # Z: DALI pipeline only returns DALI tensors and indices
+        # Z: return labels and bounding boxes for each image
         return [self.targets[idx] for idx in batch["targets_idx"]]
 
     def normalize_img(self, img: torch.Tensor) -> torch.Tensor:
+        """Z: normalize image tensor to zero mean and unit variance using dataset statistics.
+        Only for non-DALI situations."""
+        # Z: not called in actual class
+        # Z: transform mean and std to torch tensors and reshape to [C, 1, 1] for broadcasting
         mean = torch.from_numpy(self.stats["mean"]).to(dtype=img.dtype).view(-1, 1, 1)
         std = torch.from_numpy(self.stats["std"]).to(dtype=img.dtype).view(-1, 1, 1)
         return (img - mean) / std
 
 
 class JpgDALIDataset(BaseDetectionDataset):
+    """Z: Mainly used for DALI's external_source, which means the following __call__
+    will be repeatedly called by DALI to read image bytes."""
     # TODO : only JPEG, need to think about TIFF handling
 
     def __init__(
@@ -169,6 +222,8 @@ class JpgDALIDataset(BaseDetectionDataset):
             stats_file=stats_file,
             device=device,
         )
+        # Z: after called super().__init__(), we have self.img_dir, self.stats, self.class_names,
+        # self.num_classes, self.target_files, self.targets
         self.img_size = img_size
         self.batch_size = batch_size
         self.img_format = img_format
@@ -176,10 +231,14 @@ class JpgDALIDataset(BaseDetectionDataset):
             raise NotImplementedError(f"Unsupported image format: {img_format}. Only jpg is currently supported.")
 
         self.n = len(self.target_files)
+        # Z: create indices for all samples
         self.indices = list(range(self.n))
+        # Z: compute the number of full batches
         self.full_iterations = self.n // batch_size
         # Shuffling related stuff
         self.perm = self.indices  # permutation of indices
+        # Z: last_seen_epoch is used to track the epoch index for shuffling
+        # Z: all samples in the same epoch have same self.perm
         self.last_seen_epoch = (
             # so that we don't have to recompute the `self.perm` for every sample
             None
@@ -187,9 +246,12 @@ class JpgDALIDataset(BaseDetectionDataset):
 
     @staticmethod
     def _dali_tensor_to_torch(tensor):
+        """Z: convert DALI tensor to PyTorch tensor."""
         return torch.from_dlpack(tensor.evaluate().data)
 
     def __call__(self, sample_info):
+        """Z: called by DALI's external_source to get a sample (encoded image bytes and index)."""
+        # Z: get sample's position in actual epoch from sample_info given by DALI
         sample_idx = sample_info.idx_in_epoch
         if sample_info.iteration >= self.full_iterations:
             # Indicate end of the epoch
@@ -198,12 +260,17 @@ class JpgDALIDataset(BaseDetectionDataset):
             # Shuffling at the start of each epoch
             if self.last_seen_epoch != sample_info.epoch_idx:
                 self.last_seen_epoch = sample_info.epoch_idx
+                # Z: create a random number generator
                 self.perm = np.random.default_rng(seed=42 + sample_info.epoch_idx)
+                # Z: shuffle the indices for this epoch
                 self.perm = self.perm.permutation(self.indices)
+        # Z: find the true dataset index based on the current sample's position in the epoch
         idx = self.perm[sample_idx]
+        # Z: get image file name without extention
         img_id = self.target_files[idx].stem
         img_path = self.img_dir / f"{img_id}.{self.img_format}"
         # Encoded image bytes. DALI will decode this on the GPU.
+        # Z: read original binary image bytes from disk and convert to numpy array of uint8
         encoded_img = np.frombuffer(img_path.read_bytes(), dtype=np.uint8)
         return encoded_img, np.array([idx])
 
@@ -214,6 +281,7 @@ class JpgDALIDataset(BaseDetectionDataset):
         img_id = self.target_files[idx].stem
         img_path = self.img_dir / f"{img_id}.{self.img_format}"
 
+        # Z: .copy() is used to ensure that the numpy array has its own memory
         encoded_img = np.frombuffer(img_path.read_bytes(), dtype=np.uint8).copy()
         device = "gpu" if self.device == "cuda" else "cpu"
         decoding_device = "mixed" if device == "gpu" else device
@@ -227,6 +295,7 @@ class JpgDALIDataset(BaseDetectionDataset):
             resize_y=float(self.img_size),
             device=device,
         )
+        # Z: transform to float, normalize to zero mean and unit variance, and change layout from HWC to CHW
         norm_img = ndd.crop_mirror_normalize(
             img,
             device=device,
@@ -235,6 +304,7 @@ class JpgDALIDataset(BaseDetectionDataset):
             mean=mean,
             std=std,
         )
+        # Z: convert DALI tensor to CHW PyTorch tensor
         img = self._dali_tensor_to_torch(img).cpu().permute(2, 0, 1)
         norm_img = self._dali_tensor_to_torch(norm_img)
         sample = {
@@ -331,6 +401,7 @@ def parse_batch(batch):
 def sample_indices(dataset_size, num_samples, seed):
     rng = random.Random(seed)
     sample_size = min(num_samples, dataset_size)
+    # Z: return sorted randomly sampled indices
     return sorted(rng.sample(range(dataset_size), sample_size))
 
 
