@@ -195,8 +195,7 @@ class BaseDetectionDataset:
         return [self.targets[idx] for idx in batch["targets_idx"]]
 
     def normalize_img(self, img: torch.Tensor) -> torch.Tensor:
-        """Z: normalize image tensor to zero mean and unit variance using dataset statistics.
-        Only for non-DALI situations."""
+        """Z: mean/std normalize image tensor. Only for non-DALI situations."""
         # Z: not called in actual class
         # Z: transform mean and std to torch tensors and reshape to [C, 1, 1] for broadcasting
         mean = torch.from_numpy(self.stats["mean"]).to(dtype=img.dtype).view(-1, 1, 1)
@@ -304,7 +303,7 @@ class JpgDALIDataset(BaseDetectionDataset):
             resize_y=float(self.img_size),
             device=device,
         )
-        # Z: transform to float, normalize to zero mean and unit variance, and change layout from HWC to CHW
+        # Z: transform to float, mean/std normalize, and change layout from HWC to CHW
         norm_img = ndd.crop_mirror_normalize(
             img,
             device=device,
@@ -328,8 +327,8 @@ class JpgDALIDataset(BaseDetectionDataset):
 
 class JpgDetectionDataset(BaseDetectionDataset):
     """Z: This class is used for non-DALI situations, where images are loaded and processed using PIL and NumPy.
-    One image.
-    JPG bytes, PIL decode, resize, CHW pytorch tensor (sample["image"]), mean/std normalize (sample["input"])."""
+    One image. JPG bytes, PIL decode, resize, CHW pytorch tensor (sample["image"]),
+    mean/std normalize (sample["input"])."""
     def __init__(
         self,
         dataset_root: str,
