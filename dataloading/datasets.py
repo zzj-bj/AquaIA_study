@@ -34,9 +34,9 @@ def create_detection_pipeline(dataset_src, stats, img_size=640, device="gpu"):
         source=dataset_src,
         # Z: num_outputs=2 means the external source returns two outputs, encoded image and index
         num_outputs=2,
-        # Z: batch=False means the external source returns one sample at a time, not a batch of samples
+        # Z: external source returns one sample at a time not a batch
         batch=False,
-        # Z: parallel=True means the external source can be called in parallel by multiple threads
+        # Z: external source can be called in parallel by multiple threads
         parallel=True,
         dtype=[types.UINT8, types.INT64],
     )
@@ -51,7 +51,7 @@ def create_detection_pipeline(dataset_src, stats, img_size=640, device="gpu"):
         resize_y=img_size,
         device=device,
     )
-    # Z: transform to float, normalize to zero mean and unit variance, and change layout from HWC to CHW
+    # Z: transform to float, mean/std normalize, from HWC to CHW
     inputs = fn.crop_mirror_normalize(
         images,
         device=device,
@@ -184,7 +184,8 @@ class BaseDetectionDataset:
         self.targets = [self.read_target(path) for path in self.target_files]
 
     def get_targets(self, batch) -> List[dict]:
-        """Z: get targets (label bbox) for a batch of samples accroding to image indices."""
+        """Z: get targets (label bbox) for a batch of samples accroding to image indices.
+        Used by DALI and non-DALI situations because only "targets_idx" is returned by batches."""
         # Z: not called in actual class
         # Z: DALIRaggedIterator sometimes returns a list, where the first element is the actual batch dict
         if isinstance(batch, list):
