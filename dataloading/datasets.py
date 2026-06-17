@@ -451,3 +451,21 @@ def sample_dataset(dataset, num_samples, seed, device):
     img_paths = [sample["img_path"] for sample in samples]
     samples = {"inputs": inputs, "images": imgs, "img_paths": img_paths}
     return samples
+
+"""
+===================
+Output informations
+===================
+
+DALI training path:
+JpgDALIDataset.__call__ -> encoded_img, idx
+create_detection_pipeline -> inputs, idx
+DALIDetectionDataLoader -> inputs, targets_idx in batch
+
+DALI __getitem__ path:
+JpgDALIDataset.__getitem__ -> image, input, target_idx, img_path
+
+non-DALI path:
+JpgDetectionDataset.__getitem__ -> image, input, target_idx, img_path
+detection_collate_fn -> images, inputs, targets_idx, img_paths in batch
+"""
