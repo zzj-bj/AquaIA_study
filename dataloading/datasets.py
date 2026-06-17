@@ -32,7 +32,7 @@ def create_detection_pipeline(dataset_src, stats, img_size=640, device="gpu"):
     # Z: encoded = encoded image, idx = index of the image in the dataset
     encoded, idx = fn.external_source(
         source=dataset_src,
-        # Z: num_outputs=2 means the external source returns two outputs, encoded image and index
+        # Z: external source returns two outputs, encoded image and index
         num_outputs=2,
         # Z: external source returns one sample at a time not a batch
         batch=False,
@@ -83,8 +83,6 @@ class BaseDetectionDataset:
     For the non-DALI path, it also provides helpers to:
     - convert numpy images to torch tensors
     - normalize image tensors using dataset statistics
-
-    Subclasses are responsible for image loading and path-specific preprocessing.
     """
 
     def __init__(
@@ -158,7 +156,7 @@ class BaseDetectionDataset:
         return int(class_id), [float(x_center), float(y_center), float(width), float(height)]
 
     def read_target(self, label_path: str):
-        """Z: read label files and parse targets (class labels and bbox coords)."""
+        """Z: read one label file and parse targets (class labels and bbox coords)."""
         labels = []
         boxes = []
         if label_path is not None and os.path.exists(label_path):
