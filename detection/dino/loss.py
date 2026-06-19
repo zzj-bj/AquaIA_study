@@ -70,6 +70,7 @@ class SetCriterion(nn.Module):
         target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])  # flatten
 
         # background class is the last one (num_classes)
+        # Z: 这里的 num_classes 只是临时 one-hot 里的 no-object 索引，模型输出本身没有 background class。
         target_classes = torch.full(
             src_logits.shape[:2],
             self.num_classes,
