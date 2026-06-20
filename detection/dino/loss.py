@@ -84,7 +84,7 @@ class SetCriterion(nn.Module):
         idx = self._get_src_permutation_idx(indices)  # gets (batch_idx, i)
 
         # Z: t -> targets dict, indices -> (src, tgt), J -> tgt
-        # Z: get a list of GT class labels for matched predictions
+        # Z: get a list of GT class labels
         # Z: then flatten to a 1D tensor of shape [num_matched_boxes]
         target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])  # flatten
 
@@ -164,7 +164,7 @@ class SetCriterion(nn.Module):
         # Z: outputs["pred_boxes"] of shape [batch_size, num_queries, 4]
         # Z: get matched predicted boxes, shape [num_matched_boxes, 4]
         src_boxes = outputs["pred_boxes"][idx]
-        # Z: get GT boxes for matched predictions
+        # Z: get GT boxes
         # Z: then concatenate to a single tensor of shape [num_matched_boxes, 4]
         # Z: t -> targets dict, indices -> (src, tgt), i -> tgt
         target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
