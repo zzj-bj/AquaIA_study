@@ -67,9 +67,10 @@ class DINODetector(nn.Module):
         # Feed input to backbone and extract features
         # Z: lora_ft = True -> need grad, lora_ft = False -> no grad
         with torch.set_grad_enabled(self.lora_ft):
+            # Z: if lora_ft = False, backbone not trained
             # Z: Return outputs following the DINOv3's training path, richer results
             features = self.backbone(images, is_training=True)["x_norm_patchtokens"]  # (B, H*W, C)
-        # Z: expand PE to barch size
+        # Z: expand PE to batch size
         return features, self.pe.unsqueeze(0).expand(features.shape[0], -1, -1)  # (B, H*W, 2*num_pos_feats) add batch dimension with broadcasting
 
     def forward(self, images):
