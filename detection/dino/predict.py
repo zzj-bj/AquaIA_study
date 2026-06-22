@@ -4,7 +4,7 @@ from detection.utils.box_ops import box_cxcywh_to_xyxy
 
 def normalize_imgsz(config, phase):
     """Z: Ensure DINO input image size "imgsz" is a multiple of backbone patch size.
-    Training of inference phase. Will update config[phase]["imgsz"] if needed."""
+    Training or inference phase. Will update config[phase]["imgsz"] if needed."""
     # Z: get config.model.family, ex dinov3
     model_family = str(config.get("model", {}).get("family", "")).lower()
     # Z: not grid size
@@ -20,10 +20,8 @@ def normalize_imgsz(config, phase):
 
 
 def predict(model, samples, device, conf_thres, imgsz=640):
-    """Z: Run inference on a batch of samples after training and return predictions.
-    Returns {"boxes":  Tensor[N, 4],
-    "scores": Tensor[N],
-    "labels": Tensor[N],} for each image in the batch."""
+    """Z: Run inference on a batch of samples (for evaluation or visualization) and return predictions.
+    For each image in the batch returns {"boxes": Tensor[N, 4], "scores": Tensor[N], "labels": Tensor[N]}."""
     # Z: samples can be either:
     # - a dict returned by sample_dataset() for visualization
     # - a dataloader batch for metric evaluation.
