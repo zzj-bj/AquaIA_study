@@ -21,7 +21,8 @@ def normalize_imgsz(config, phase):
 
 def predict(model, samples, device, conf_thres, imgsz=640):
     """Z: Run inference on a batch of samples (for evaluation or visualization) and return predictions.
-    For each image in the batch returns {"boxes": Tensor[N, 4], "scores": Tensor[N], "labels": Tensor[N]}."""
+    For each image in the batch returns {"boxes": Tensor[N, 4], "scores": Tensor[N], "labels": Tensor[N]}.
+    Boxes are in xyxy format with real pixel coords."""
     # Z: samples can be either:
     # - a dict returned by sample_dataset() for visualization
     # - a dataloader batch for metric evaluation.
