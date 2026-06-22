@@ -143,7 +143,8 @@ def delta2bbox(proposals, deltas, max_shape=None, wh_ratio_clip=16 / 1000, clip_
     pxy = proposals[..., :2]
     pwh = proposals[..., 2:]
 
-    # Z: get dx*pw and dy*ph -> convert dx dy to same scale as px py
+    # Z: get pw*dx and ph*dy -> convert dx dy to same scale as px py
+    # Z: PyTorch's * performs element-wise multiplication on tensors of the same shape by default
     dxy_wh = pwh * dxy
 
     max_ratio = np.abs(np.log(wh_ratio_clip))
@@ -159,6 +160,7 @@ def delta2bbox(proposals, deltas, max_shape=None, wh_ratio_clip=16 / 1000, clip_
     # Z: convert cxcywh to xyxy
     x1y1 = gxy - (gwh * 0.5)
     x2y2 = gxy + (gwh * 0.5)
+    # Z: [x1, y1, x2, y2]
     bboxes = torch.cat([x1y1, x2y2], dim=-1)
     if clip_border and max_shape is not None:
         # Z: ... means all dimensions except the last one
@@ -170,6 +172,7 @@ def delta2bbox(proposals, deltas, max_shape=None, wh_ratio_clip=16 / 1000, clip_
 
 
 def bbox2delta(proposals, gt, means=(0.0, 0.0, 0.0, 0.0), stds=(1.0, 1.0, 1.0, 1.0)):
+    """Z: Encode cxcywh GT boxes as normalized [dx, dy, dw, dh] offsets relative to cxcywh proposal boxes."""
     # hack for matcher
     if proposals.size() != gt.size():
         proposals = proposals[:, None]
@@ -181,6 +184,7 @@ def bbox2delta(proposals, gt, means=(0.0, 0.0, 0.0, 0.0), stds=(1.0, 1.0, 1.0, 1
     gx, gy, gw, gh = gt.unbind(-1)
 
     # Z: 0.1 to prevent division by 0 and log(0)
+    # Z: gx=pw*dx+px, gy=ph*dy+py, gw=pw*exp(dw), gh=ph*exp(dh)
     dx = (gx - px) / (pw + 0.1)
     dy = (gy - py) / (ph + 0.1)
     dw = torch.log(gw / (pw + 0.1))
