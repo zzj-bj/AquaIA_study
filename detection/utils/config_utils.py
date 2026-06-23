@@ -67,7 +67,7 @@ def find_latest_run_dir(runs_root):
 
 
 def load_class_names(dataset_path):
-    """Z: read class names and class nb from dataset YAML ."""
+    """Z: read class names and class nb from dataset YAML."""
     dataset_path = Path(dataset_path)
 
     if dataset_path.is_dir():
