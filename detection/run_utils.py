@@ -48,7 +48,7 @@ def get_run_context(config):
 
 
 def print_test_header(ctx):
-    """Z: print a header with key info about the inference run."""
+    """Z: Not used. print a header with key info about the inference run."""
     print(f"Evaluating run: {ctx['run_dir']}")
     print(f"Device: {ctx['device']} | AMP: {ctx['use_amp']}")
     print(f"Train dataset: {ctx['train_data_root']}")
@@ -57,7 +57,7 @@ def print_test_header(ctx):
 
 
 def build_splits(train_source, test_source, train_class_names, test_class_names, seed):
-    """Z: build train/test splits info for metrics saving."""
+    """Z: Not used. Build train/test splits info for metrics saving."""
     return [
         ("train", train_source, train_class_names, seed),
         ("test", test_source, test_class_names, seed + 1),
@@ -65,7 +65,7 @@ def build_splits(train_source, test_source, train_class_names, test_class_names,
 
 
 def save_metrics(metrics, output_dir):
-    """Z: save inference metrics with splits to yaml and csv files in output_dir."""
+    """Z: Not used. Save inference metrics with splits to yaml and csv files in output_dir."""
     with (Path(output_dir) / "inference_metrics.yaml").open("w", encoding="utf-8") as f:
         # Z: write metrics dict to yaml file without sorted keys
         yaml.safe_dump(metrics, f, sort_keys=False)
