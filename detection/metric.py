@@ -34,7 +34,7 @@ def update_metric_dict(log_dict, loss_dict, batch_loss, split, num_batches):
         log_dict (dict): Dictionary to store accumulated metrics.
         loss_dict (dict): Dictionary containing per-batch loss values.
         batch_loss (float): The total loss for the current batch.
-        split (str): The data split (e.g., 'train', 'val', 'test').
+        split (str): The data split.
         num_batches (int): Total number of batches in the epoch.
     """
     # Z: weight for each batch losses' values
