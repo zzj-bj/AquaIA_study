@@ -17,7 +17,7 @@ LOSS_DISPLAY_NAMES = {
 }
 
 # Z: display order for metrics
-# Z: !Warning! avg not used
+# Z: !Warning! not used
 METRIC_ORDER = (
     "avg",
     "loss_ce",
@@ -49,7 +49,7 @@ def update_metric_dict(log_dict, loss_dict, batch_loss, split, num_batches):
 
 
 def _format_metric(metric_name, value):
-    """Z: format metric names and values for printing"""
+    """Z: format metric names and values for printing."""
     display_name = LOSS_DISPLAY_NAMES.get(metric_name, metric_name)
     return f"{display_name}={value:.4f}"
 
