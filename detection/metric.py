@@ -33,7 +33,7 @@ def update_metric_dict(log_dict, loss_dict, batch_loss, split, num_batches):
     Args:
         log_dict (dict): Dictionary to store accumulated metrics.
         loss_dict (dict): Dictionary containing per-batch loss values.
-        batch_loss (float): The total loss for the current batch.
+        batch_loss (float): The total loss for the current batch = sum of individual losses * weights
         split (str): The data split.
         num_batches (int): Total number of batches in the epoch.
     """
@@ -49,13 +49,13 @@ def update_metric_dict(log_dict, loss_dict, batch_loss, split, num_batches):
 
 
 def _format_metric(metric_name, value):
-    """Z: format metric name and value for printing"""
+    """Z: format metric names and values for printing"""
     display_name = LOSS_DISPLAY_NAMES.get(metric_name, metric_name)
     return f"{display_name}={value:.4f}"
 
 
 def print_metrics(metrics):
-    """Z: Print epoch summary metrics. For training and inference, metrics may like
+    """Z: Print epoch summary metrics. For training and inference, metrics looks like
     { "train": {"loss": ..., "loss_ce": ..., "loss_bbox": ..., "loss_giou": ...,},
       "val": {"loss": ..., "loss_ce": ..., "loss_bbox": ..., "loss_giou": ...,},
       "epoch": 1 }"""
@@ -73,7 +73,7 @@ def print_metrics(metrics):
             if not isinstance(value, (int, float)):
                 continue
 
-            # Z: format metric name and value for printing
+            # Z: format metric names and values for printing
             print_summary += f"{_format_metric(key, value)} | "
 
         print(print_summary[:-3])
@@ -163,6 +163,7 @@ def compute_metrics(model, dataloaders, predict_fn, device, conf_thresh):
         imgsz = loader.dataset.img_size
         predictions = []
         targets = []
+        # Z: for each batch
         for batch in loader:
             batch_targets = loader.dataset.get_targets(batch)
             if isinstance(batch, list):
