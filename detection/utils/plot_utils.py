@@ -161,7 +161,8 @@ def save_sample_predictions(model, subset, output_dir, predict_fn, num_samples=2
 
 
 def plot_metrics(run_dir, output_dir=None, metrics_filename="metrics.npy"):
-    """Z: read one training run's metrics.npy file, plot the metrics curves and save, return figure path."""
+    """Z: read one training run's metrics.npy file, plot the metrics curves and save, return figure path.
+    For training."""
     run_dir = Path(run_dir)
     output_dir = Path(output_dir) if output_dir is not None else run_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -198,14 +199,14 @@ def plot_metrics(run_dir, output_dir=None, metrics_filename="metrics.npy"):
 
     # Z: 1 axe -> 1 metric_name
     for ax, metric_name in zip(axes, metric_names):
-        # Z: check whether train and val exist
-        # Z: then append other splits that are neither train nor val
+        # Z: keep train and val first if they exist for this metric_name in grouped_metrics
         splits = [split for split in ("train", "val") if split in grouped_metrics[metric_name]]
+        # Z: append sorted splits other than train and val for this metric_name in grouped_metrics
         splits.extend(sorted(split for split in grouped_metrics[metric_name] if split not in {"train", "val"}))
-        # Z: record whether a valid curve has been drawn in the current subplot.
+        # Z: record whether a valid curve has been drawn in the current subplot
         plotted = False
         for split in splits:
-            # Z: if split = "map_50" etc, key = "map_50" etc, else key = "train/loss" etc
+            # Z: if split = metric_name, key is a top-level metric like "map_50"; otherwise key is like "train/loss"
             key = metric_name if split == metric_name else f"{split}/{metric_name}"
             # Z: for each epoch get the value corresponding to the current key from the flattened metrics
             values = np.asarray([entry.get(key, np.nan) for entry in flattened_history], dtype=np.float32)
