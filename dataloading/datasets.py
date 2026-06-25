@@ -442,7 +442,8 @@ def detection_collate_fn(batch):
 
 
 def sample_dataset(dataset, num_samples, seed, device):
-    """Z: randomly sample from dataset, return model input batch, visualization batch, image paths."""
+    """Z: randomly sample from dataset, return model input batch, visualization batch, image paths..
+    samples = {"inputs": inputs, "images": imgs, "img_paths": img_paths}"""
     sampled_indices = sample_indices(len(dataset), num_samples, seed)
     # Z: get samples
     samples = [dataset[index] for index in sampled_indices]
