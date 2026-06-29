@@ -89,15 +89,15 @@ class TrainingLogger:
     # ── Public API ──────────────────────────────────────────────────────────
 
     def info(self, msg: str) -> None:
-        """Z: simple encapsulation of internal Python logger to log an INFO level message into train.log + console ."""
+        """Z: simple encapsulation of internal Python logger to log an INFO level message into train.log + console."""
         self._logger.info(msg)
 
     def warning(self, msg: str) -> None:
-        """Z: simple encapsulation of internal Python logger to log a WARNING level message into train.log + console ."""
+        """Z: simple encapsulation of internal Python logger to log a WARNING level message into train.log + console."""
         self._logger.warning(msg)
 
     def log_device(self, device: str, use_amp: bool, dataset_info: Optional[str] = None) -> None:
-        """Z: log device, AMP usage and dataset info into train.log + console ."""
+        """Z: log device, AMP usage and dataset info into train.log + console."""
         self._logger.info(f"Device: {device} | AMP: {use_amp}")
         if dataset_info:
             self._logger.info(f"Dataset: {dataset_info}")
