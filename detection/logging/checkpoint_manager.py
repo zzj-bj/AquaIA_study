@@ -2,7 +2,9 @@ from pathlib import Path
 
 
 class CheckpointManager:
-    """Saves best.pt on improvement and last.pt every save_period epochs."""
+    """Saves best.pt on improvement and last.pt every save_period epochs.
+    Z: saves best.pt on improvement; last.pt + training state
+    every save_period epochs and at the end of training."""
 
     def __init__(self, run_dir: str, save_period: int = 0):
         self.weights_dir = Path(run_dir) / "weights"
@@ -24,6 +26,7 @@ class CheckpointManager:
         self._save_last(epoch, model, optimizer, scaler, scheduler)
 
     def _save_last(self, epoch: int, model, optimizer, scaler, scheduler) -> None:
+        """Z: save last.pt and last_training_state.pt."""
         from detection.checkpoint import save_model_checkpoint, save_training_state_checkpoint
 
         save_model_checkpoint(path=str(self.weights_dir / "last.pt"), model=model)
