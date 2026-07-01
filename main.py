@@ -9,7 +9,7 @@ def build_parser():
     # Z: create the main argument parser
     parser = argparse.ArgumentParser(description="AquaIA entry point")
     # Z: create subparser system supporting subcommands
-    # Z: dest="command" stores the selected subcommand in args.command
+    # Z: dest="command" stores the selected subcommand in parsed_args.command
     # Z: required=True requires the user to select a subcommand
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -37,7 +37,7 @@ def handle_train(args):
 
 
 def handle_test(args):
-    """Z: receives a param "args", with attributes "config"."""
+    """Z: receives a param "args", with attribute "config"."""
     return test_from_config(args.config)
 
 
@@ -57,10 +57,10 @@ def main(args=None):
     # Z: receive args = ["train"] or args = ["infer"]
     # Z: if resume training, receive args = ["train", "--resume", "runs/<run_id>"]
     # Z: based on the rules registered previously, parse to get an object similar to:
-    # Z: parsed_args.command == "train"
-    # Z: parsed_args.config == "detection/train_config.yaml"
-    # Z: parsed_args.resume == None, or "runs/<run_id>" if --resume is specified
-    # Z: parsed_args.command_handler == handle_train
+    # Z: parsed_args.command = "train"
+    # Z: parsed_args.config = "detection/train_config.yaml"
+    # Z: parsed_args.resume = None, or "runs/<run_id>" if --resume is specified
+    # Z: parsed_args.command_handler = handle_train
     parsed_args = parser.parse_args(args=args)
     # Z: call the appropriate handler: handle_train(parsed_args)
     # Z: -> train_from_config("detection/train_config.yaml", resume_dir=parsed_args.resume)
