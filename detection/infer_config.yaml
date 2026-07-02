@@ -1,18 +1,23 @@
 # AquaIA - DETR+DINO inference config
 
 run:
+  # Z: root directory where all training runs are saved
   runs_root: "results/detect/dinov3_small_pretrained"
+  # Z: one specific training run directory
   run_dir: null
 
 data:
   test_data_root: "datasets/coco_custom_match"
+  # Z: !Warning! not used
   loader: "jpg"
+  # Z: only for DINO, YOLO uses test
   split: "train"
 
 inference:
   batch: 8
   imgsz : 640
   conf: 0.3
+  # Z: nb samples for visualization !Warning! not used
   num_samples: 20
   seed: 0
 
