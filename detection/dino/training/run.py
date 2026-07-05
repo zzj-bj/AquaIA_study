@@ -26,8 +26,11 @@ def get_datasets(
     batch_size,
     device,
     img_size=640,
+    # Z: !Warning! not used
     loader="jpg",
 ):
+    """Z: Create the training and validation datasets, train_dataset, val_dataset, num_classes.
+    It chooses different dataset implementations depending on whether the current environment supports DALI."""
     # TODO : currently GPU only because of DALI, but should be possible to support CPU-only training)
     # Compute random split for train and eval set
     if DALI_AVAILABLE:
@@ -63,9 +66,11 @@ def get_datasets(
 
 
 def build_scheduler(training_config, optimizer):
+    """Z: Create lr scheduler, warmup + cosine decay + min lr constraint."""
     if not training_config.get("cos_lr", False):
         return None
     warmup_ratio = float(training_config.get("warmup_ratio", 0.0))
+    # Z: epoch level scheduler, not batch level
     warmup_steps = int(training_config["epochs"] * warmup_ratio)
     if warmup_ratio > 0.0:
         warmup_steps = max(warmup_steps, 1)
@@ -74,12 +79,14 @@ def build_scheduler(training_config, optimizer):
         optimizer=optimizer,
         num_warmup_steps=warmup_steps,
         num_training_steps=training_config["epochs"],
+        # Z: min lr for cosine scheduler = lrf * lr0
         scheduler_specific_kwargs={"min_lr_rate": training_config.get("lrf", 0.01)},
     )
     return scheduler
 
 
 def train_dino(config, resume_dir=None):
+    """Z: """
     training_config = config["training"]
     output_config = config["output"]
     log_config = config.get("logging", {})
@@ -90,6 +97,7 @@ def train_dino(config, resume_dir=None):
     else:
         device = configured_device
 
+    # Z: use amp if device is cuda
     use_amp = device == "cuda"
 
     imgsz = normalize_imgsz(config, "training")
@@ -98,6 +106,7 @@ def train_dino(config, resume_dir=None):
         training_config["batch"],
         device=device,
         img_size=imgsz,
+        # Z: !Warning! not used
         loader=config["data"].get("loader", "jpg"),
     )
 
@@ -114,9 +123,12 @@ def train_dino(config, resume_dir=None):
         run_dir = str(resume_dir)
         run_id = Path(run_dir).name
     else:
+        # Z: "20260705_143208"
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Z: "runs/20260705_143208"
         run_dir = os.path.join(output_config.get("project", "runs"), run_id)
     os.makedirs(run_dir, exist_ok=True)
+    # Z: "runs/20260705_143208/weights"
     weights_dir = os.path.join(run_dir, "weights")
     os.makedirs(weights_dir, exist_ok=True)
 
@@ -126,6 +138,7 @@ def train_dino(config, resume_dir=None):
         run_dir=run_dir,
         save_period=log_config.get("save_period", 0),
     )
+    # Z: new training run
     if not resume_dir:
         register_run(config=config, run_id=run_id, run_dir=run_dir, pid=os.getpid())
     logger.log_device(
@@ -152,6 +165,8 @@ def train_dino(config, resume_dir=None):
         cost_giou=training_config["cost_giou"],
         cost_bbox_type=training_config["cost_bbox_type"],
     )
+    # Z: SetCriterion computes various losses
+    # Z: then training loop combines through this dictionary into the total loss.
     loss_weight_dict = {
         "loss_ce": training_config["cls"],
         "loss_bbox": training_config["box"],
@@ -162,6 +177,7 @@ def train_dino(config, resume_dir=None):
         matcher=matcher,
     ).to(device)
 
+    # Z: get optimizer class then initialize it
     optimizer_cls = getattr(torch.optim, training_config.get("optimizer", "AdamW"))
     optimizer = optimizer_cls(
         [p for p in model.parameters() if p.requires_grad],
@@ -171,7 +187,14 @@ def train_dino(config, resume_dir=None):
 
     scheduler = build_scheduler(training_config, optimizer)
 
+    # Z: create a GradScaler to prevent gradient underflow when using AMP
     scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    # Z: 1 scale the loss: scaled_loss = scaler.scale(total_loss)
+    # Z: 2 backpropagate the scaled loss: scaled_loss.backward(), producing scaled gradients
+    # Z: 3 unscale gradients, then check whether they contain inf or NaN
+    # Z: execute optimizer.step() if gradients are finite; otherwise skip this parameter update
+    # Z: scaler.step(optimizer)
+    # Z: 4 dynamically adjust the scale factor: scaler.update()
     best_validation_loss = float("inf")
     metrics_history = []
     start_epoch = 0
@@ -184,8 +207,12 @@ def train_dino(config, resume_dir=None):
         last_state = os.path.join(run_dir, "last_training_state.pt")
 
         if os.path.exists(last_weights):
+            # Z: load the checkpoint from disk and map its tensors to the specified device 
             ckpt = torch.load(last_weights, map_location=device)
+            # Z: find the models that actually need to receive weights
+            # Z: model compilation may add some additional attributes, take original model
             base_model = model._orig_mod if hasattr(model, "_orig_mod") else model
+            # Z: load the model state dict from the checkpoint into the model
             base_model.load_state_dict(ckpt["model_state_dict"])
             logger.info(f"[RESUME] Loaded model weights from {last_weights}")
 
@@ -195,17 +222,21 @@ def train_dino(config, resume_dir=None):
             scaler.load_state_dict(state["scaler_state_dict"])
             if scheduler is not None and "scheduler_state_dict" in state:
                 scheduler.load_state_dict(state["scheduler_state_dict"])
+            # Z: resume number of achived epochs
             start_epoch = state["epoch"]
             logger.info(f"[RESUME] Resuming from epoch {start_epoch + 1}/{training_config['epochs']}")
 
         meta_path = Path(run_dir) / "run_meta.json"
         if meta_path.exists():
+            # Z: read the JSON text and convert it to a Python dictionary
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             best_validation_loss = float(meta.get("best_val_loss") or "inf")
 
     model.train()
     criterion.train()
     if training_config.get("compile", False):
+        # Z: torch.compile() attempts to optimize the model's forward computation graph
+        # Z: to make training or inference faster
         model = torch.compile(model)
 
     # === Training loop ===
