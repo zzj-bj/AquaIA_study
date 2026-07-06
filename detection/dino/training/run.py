@@ -86,7 +86,7 @@ def build_scheduler(training_config, optimizer):
 
 
 def train_dino(config, resume_dir=None):
-    """Z: """
+    """Z: Main training process."""
     training_config = config["training"]
     output_config = config["output"]
     log_config = config.get("logging", {})
