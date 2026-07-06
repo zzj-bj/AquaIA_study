@@ -189,12 +189,13 @@ def train_dino(config, resume_dir=None):
 
     # Z: create a GradScaler to prevent gradient underflow when using AMP
     scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
-    # Z: 1 scale the loss: scaled_loss = scaler.scale(total_loss)
-    # Z: 2 backpropagate the scaled loss: scaled_loss.backward(), producing scaled gradients
-    # Z: 3 unscale gradients, then check whether they contain inf or NaN
+    # Z: step 1 scale the loss then backpropagate the scaled loss producing scaled gradients
+    # Z:    scaler.scale(total_loss).backward()
+    # Z: step 2 unscale gradients then check whether they contain inf or NaN
     # Z: execute optimizer.step() if gradients are finite; otherwise skip this parameter update
-    # Z: scaler.step(optimizer)
-    # Z: 4 dynamically adjust the scale factor: scaler.update()
+    # Z:    scaler.step(optimizer)
+    # Z: step 3 dynamically adjust the scale factor
+    # Z:    scaler.update()
     best_validation_loss = float("inf")
     metrics_history = []
     start_epoch = 0
@@ -241,15 +242,18 @@ def train_dino(config, resume_dir=None):
 
     # === Training loop ===
     try:
+        # Z: START for epoch loop
         for epoch in range(start_epoch, training_config["epochs"]):
             metric_dict = {"train": {}, "val": {}}
             logger.info(f"========== Epoch {epoch + 1}/{training_config['epochs']} ==========")
 
+            # Z: START for each train val dataloader -> for each epoch first train then val
             for loader in [train_dataloader, val_dataloader]:
                 split = loader.dataset.data_split
                 training = split == "train"
 
                 metric_dict[split]["loss"] = 0.0
+                # Z: batch level loader progress bar, hence train val batch level progress bar
                 progress = tqdm.tqdm(loader, desc="- Training   " if training else "- Validation ", unit="batch")
 
                 if not training:
@@ -258,6 +262,7 @@ def train_dino(config, resume_dir=None):
                     model.train()
 
                 with torch.set_grad_enabled(training):
+                    # Z: START for batch loop
                     for batch_idx, batch in enumerate(progress):
                         targets = loader.dataset.get_targets(batch)
                         images, _ = parse_batch(batch)
@@ -266,33 +271,49 @@ def train_dino(config, resume_dir=None):
                             images = images.to(device, non_blocking=True)
 
                         with torch.autocast(device_type=device, dtype=torch.float16, enabled=use_amp):
+                            # Z: outputs = { "pred_logits": tensor(...), "pred_boxes": tensor(...), }
                             outputs = model(images)
+                            # Z: loss_dict = { "loss_ce": ..., "class_error": ..., "loss_bbox": ...,
+                            # Z: "loss_giou": ..., "cardinality_error": ... }
                             loss_dict = criterion(outputs, targets)
                         total_loss = sum(loss_dict[key] * loss_weight_dict[key] for key in loss_dict if key in loss_weight_dict)
 
                         if training:
+                            # Z: set_to_none=True set gradients to None, reducing memory usage
                             optimizer.zero_grad(set_to_none=True)
+                            # Z: scale the loss then backpropagate the scaled loss producing scaled gradients
                             scaler.scale(total_loss).backward()
+                            # Z: unscale gradients then check whether they contain inf or NaN
+                            # Z: execute optimizer.step() if gradients are finite; otherwise skip this parameter update
                             scaler.step(optimizer)
+                            # Z: dynamically adjust the scale factor
                             scaler.update()
 
                         batch_loss = float(total_loss.item())
+                        # Z: show the current loss values in the progress bar, formatted to 4 decimal places
                         progress.set_postfix(
                             **{key: f"{float(value.item()):.4f}" for key, value in loss_dict.items() if key in loss_weight_dict},
                         )
                         update_metric_dict(metric_dict, loss_dict, batch_loss, loader.dataset.data_split, progress.total)
 
                         # Heartbeat — updated every N batches
+                        # Z: +1 because epoch and batch_idx are 0-indexed but we want to log 1-indexed values
                         logger.heartbeat(epoch + 1, batch_idx + 1, progress.total)
+
+                    # Z: END for batch loop
 
                     if training and scheduler is not None:
                         scheduler.step()
 
+            # Z: END for each train val dataloader
+
             metric_dict["epoch"] = epoch + 1
+            # Z: save epoch-level metrics to history and print them
             metrics_history.append(metric_dict)
             print_metrics(metric_dict)
 
             # Epoch-level logging
+            # Z: read first param group lr
             lr = optimizer.param_groups[0]["lr"]
             logger.log_epoch(epoch + 1, training_config["epochs"], metric_dict, lr)
 
@@ -304,11 +325,14 @@ def train_dino(config, resume_dir=None):
                 logger.log_best(epoch + 1, validation_loss)
             checkpoint_mgr.step(epoch + 1, model, optimizer, scaler, scheduler, is_best=is_best)
 
+        # Z: END for epoch loop
+
         # === Training ended normally ===
         checkpoint_mgr.save_final(training_config["epochs"], model, optimizer, scaler, scheduler)
         logger.finish()
         update_run_status(config, run_id, "done")
 
+    # Z: like Ctrl + C
     except KeyboardInterrupt:
         logger.interrupted()
         update_run_status(config, run_id, "interrupted")
@@ -325,6 +349,8 @@ def train_dino(config, resume_dir=None):
         raise
 
     # === Post-training: metrics, config, eval ===
+    # Z: metrics_history = [ { "train": {"loss": ..., "loss_ce": ..., "loss_bbox": ..., "loss_giou": ..., "class_error":..., "cardinality_error":... },
+    # Z: "val": {"loss": ..., "loss_ce": ..., "loss_bbox": ..., "loss_giou": ..., "class_error":..., "cardinality_error":... }, "epoch": 1 },... ]
     np.save(os.path.join(run_dir, "metrics.npy"), metrics_history, allow_pickle=True)
     plot_metrics(run_dir)
 
@@ -336,16 +362,21 @@ def train_dino(config, resume_dir=None):
         run_dir=run_dir,
     )
 
+    # Z: load the checkpoint from disk and map its tensors to the specified device
     best_checkpoint = torch.load(os.path.join(weights_dir, "best.pt"), map_location=device)
+    # Z: find the models that actually need to receive weights
     best_model = model._orig_mod if hasattr(model, "_orig_mod") else model
+    # Z: load the model state dict from the checkpoint into the model
     best_model.load_state_dict(best_checkpoint["model_state_dict"])
 
     best_model.eval()
+    # Z: compute metrics on train and val sets using the best model
     metrics = compute_metrics(
         model=best_model,
         dataloaders=[train_dataloader, val_dataloader],
         predict_fn=predict,
         device=device,
+        # Z: prediction conf !Warining! no "conf_thresh" in train_config.yaml
         conf_thresh=training_config.get("conf_thresh", 0.05),
     )
     logger.info(str(metrics))
@@ -356,6 +387,7 @@ def train_dino(config, resume_dir=None):
         subset=val_set,
         predict_fn=predict,
         output_dir=Path(run_dir) / "eval_predictions",
+        # Z: !Warning! hard coded
         conf=0.3,
         seed=42,
         device=device,
@@ -365,6 +397,7 @@ def train_dino(config, resume_dir=None):
         subset=train_set,
         predict_fn=predict,
         output_dir=Path(run_dir) / "train_predictions",
+        # Z: !Warning! not cohrent with training_config.get("conf_thresh", 0.05)
         conf=training_config.get("conf", 0.3),
         seed=42,
         device=device,

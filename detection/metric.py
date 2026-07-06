@@ -29,9 +29,9 @@ METRIC_ORDER = (
 
 
 def update_metric_dict(log_dict, loss_dict, batch_loss, split, num_batches):
-    """Z: Accumulate per-batch losses into epoch-average metrics for this split, for training.
+    """Z: accumulate per-batch losses into epoch-average metrics for this split, for training.
     Args:
-        log_dict (dict): Dictionary to store accumulated metrics.
+        log_dict (dict): Dictionary to store accumulated metrics for one epoch.
         loss_dict (dict): Dictionary containing per-batch loss values.
         batch_loss (float): The total loss for the current batch = sum of individual losses * weights
         split (str): The data split.
@@ -156,7 +156,7 @@ def evaluate_map(predictions, targets, imgsz, split, device):
 
 @torch.no_grad()
 def compute_metrics(model, dataloaders, predict_fn, device, conf_thresh):
-    """Z: Compute metrics for a model on given dataloaders using a prediction function. For training and inference."""
+    """Z: Compute mAP50 mAP50_95 metrics for a model on given dataloaders using a prediction function. For training and inference."""
     all_metrics = {}
     # Z: each split has its dataloader
     for loader in dataloaders:
