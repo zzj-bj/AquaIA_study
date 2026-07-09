@@ -116,6 +116,7 @@ def train_dino(config, resume_dir=None):
         train_dataloader = DALIDetectionDataLoader(train_set, device="gpu")
         val_dataloader = DALIDetectionDataLoader(val_set, device="gpu")
     else:
+        # Z: pin_memory=True + non_blocking=True accelerates data transfer from CPU to GPU
         train_dataloader = DataLoader(train_set, batch_size=training_config["batch"], shuffle=True, num_workers=3, pin_memory=True, collate_fn=detection_collate_fn)
         val_dataloader = DataLoader(val_set, batch_size=training_config["batch"], shuffle=False, num_workers=3, collate_fn=detection_collate_fn)
 
@@ -211,7 +212,7 @@ def train_dino(config, resume_dir=None):
         if os.path.exists(last_weights):
             # Z: load the checkpoint from disk and move tensors to device
             ckpt = torch.load(last_weights, map_location=device)
-            # Z: find the models that actually need to receive weights
+            # Z: find the model that actually need to receive weights
             # Z: model compilation may add some additional attributes, take original model
             base_model = model._orig_mod if hasattr(model, "_orig_mod") else model
             # Z: load the model state dict from the checkpoint into the model
@@ -266,7 +267,7 @@ def train_dino(config, resume_dir=None):
                     # Z: START for batch loop
                     for batch_idx, batch in enumerate(progress):
                         # Z: Non-DALI: batch = { "images": Tensor[B, 3, H, W], "inputs": Tensor[B, 3, H, W],
-                        # Z: "targets_idx": list[int],"img_paths": list[str], }
+                        # Z: "targets_idx": list[int], "img_paths": list[str], }
                         # Z: DALI: batch = { "inputs": Tensor[B, 3, H, W], "targets_idx": Tensor or DALI output }
                         # Z: targets =[ {"labels": ..., "boxes": ...}, {"labels": ..., "boxes": ...}, ...]
                         targets = loader.dataset.get_targets(batch)
@@ -299,7 +300,7 @@ def train_dino(config, resume_dir=None):
                         progress.set_postfix(
                             **{key: f"{float(value.item()):.4f}" for key, value in loss_dict.items() if key in loss_weight_dict},
                         )
-                        # Z: loss_dict, batch_loss are batch level, metric_dict is epoch level, progree.total = nb batches
+                        # Z: loss_dict, batch_loss are batch level, metric_dict is epoch level, progress.total = nb batches
                         update_metric_dict(metric_dict, loss_dict, batch_loss, loader.dataset.data_split, progress.total)
 
                         # Heartbeat — updated every N batches
@@ -371,7 +372,7 @@ def train_dino(config, resume_dir=None):
 
     # Z: load the checkpoint from disk and move tensors to device
     best_checkpoint = torch.load(os.path.join(weights_dir, "best.pt"), map_location=device)
-    # Z: find the models that actually need to receive weights
+    # Z: find the model that actually need to receive weights
     best_model = model._orig_mod if hasattr(model, "_orig_mod") else model
     # Z: load the model state dict from the checkpoint into the model
     best_model.load_state_dict(best_checkpoint["model_state_dict"])
