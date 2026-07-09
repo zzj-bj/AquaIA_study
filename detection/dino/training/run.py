@@ -29,7 +29,7 @@ def get_datasets(
     # Z: !Warning! not used
     loader="jpg",
 ):
-    """Z: Create the training and validation datasets, train_dataset, val_dataset, num_classes.
+    """Z: Create the training and validation datasets, return train_dataset, val_dataset, num_classes.
     It chooses different dataset implementations depending on whether the current environment supports DALI."""
     # TODO : currently GPU only because of DALI, but should be possible to support CPU-only training)
     # Compute random split for train and eval set
@@ -86,7 +86,8 @@ def build_scheduler(training_config, optimizer):
 
 
 def train_dino(config, resume_dir=None):
-    """Z: Main training process."""
+    """Z: Read training parameters from the configuration, create the dataset and model,
+    execute the training and validation loop, and save checkpoints, logs, metrics, and prediction results."""
     training_config = config["training"]
     output_config = config["output"]
     log_config = config.get("logging", {})
@@ -138,7 +139,7 @@ def train_dino(config, resume_dir=None):
         run_dir=run_dir,
         save_period=log_config.get("save_period", 0),
     )
-    # Z: new training run
+    # Z: if new training run
     if not resume_dir:
         register_run(config=config, run_id=run_id, run_dir=run_dir, pid=os.getpid())
     logger.log_device(
@@ -208,7 +209,7 @@ def train_dino(config, resume_dir=None):
         last_state = os.path.join(run_dir, "last_training_state.pt")
 
         if os.path.exists(last_weights):
-            # Z: load the checkpoint from disk and map its tensors to the specified device 
+            # Z: load the checkpoint from disk and move tensors to device
             ckpt = torch.load(last_weights, map_location=device)
             # Z: find the models that actually need to receive weights
             # Z: model compilation may add some additional attributes, take original model
@@ -264,6 +265,10 @@ def train_dino(config, resume_dir=None):
                 with torch.set_grad_enabled(training):
                     # Z: START for batch loop
                     for batch_idx, batch in enumerate(progress):
+                        # Z: Non-DALI: batch = { "images": Tensor[B, 3, H, W], "inputs": Tensor[B, 3, H, W],
+                        # Z: "targets_idx": list[int],"img_paths": list[str], }
+                        # Z: DALI: batch = { "inputs": Tensor[B, 3, H, W], "targets_idx": Tensor or DALI output }
+                        # Z: targets =[ {"labels": ..., "boxes": ...}, {"labels": ..., "boxes": ...}, ...]
                         targets = loader.dataset.get_targets(batch)
                         images, _ = parse_batch(batch)
 
@@ -274,7 +279,7 @@ def train_dino(config, resume_dir=None):
                             # Z: outputs = { "pred_logits": tensor(...), "pred_boxes": tensor(...), }
                             outputs = model(images)
                             # Z: loss_dict = { "loss_ce": ..., "class_error": ..., "loss_bbox": ...,
-                            # Z: "loss_giou": ..., "cardinality_error": ... }
+                            # Z: "loss_giou": ..., "cardinality_error": ... } batch level
                             loss_dict = criterion(outputs, targets)
                         total_loss = sum(loss_dict[key] * loss_weight_dict[key] for key in loss_dict if key in loss_weight_dict)
 
@@ -290,10 +295,11 @@ def train_dino(config, resume_dir=None):
                             scaler.update()
 
                         batch_loss = float(total_loss.item())
-                        # Z: show the current loss values in the progress bar, formatted to 4 decimal places
+                        # Z: show the current batch loss values in the progress bar, formatted to 4 decimal places
                         progress.set_postfix(
                             **{key: f"{float(value.item()):.4f}" for key, value in loss_dict.items() if key in loss_weight_dict},
                         )
+                        # Z: loss_dict, batch_loss are batch level, metric_dict is epoch level, progree.total = nb batches
                         update_metric_dict(metric_dict, loss_dict, batch_loss, loader.dataset.data_split, progress.total)
 
                         # Heartbeat — updated every N batches
@@ -339,6 +345,7 @@ def train_dino(config, resume_dir=None):
         # Save partial metrics so the run isn't a total loss
         if metrics_history:
             np.save(os.path.join(run_dir, "metrics.npy"), metrics_history, allow_pickle=True)
+        # Z: still raise exception so program exits
         raise
 
     except Exception as exc:
@@ -362,7 +369,7 @@ def train_dino(config, resume_dir=None):
         run_dir=run_dir,
     )
 
-    # Z: load the checkpoint from disk and map its tensors to the specified device
+    # Z: load the checkpoint from disk and move tensors to device
     best_checkpoint = torch.load(os.path.join(weights_dir, "best.pt"), map_location=device)
     # Z: find the models that actually need to receive weights
     best_model = model._orig_mod if hasattr(model, "_orig_mod") else model
