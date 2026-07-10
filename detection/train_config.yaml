@@ -14,7 +14,6 @@ data:
   # Dataset path consumed by the DINO trainer.
   dataset_yaml: "datasets/coco_custom_match"
   # Image loader used by the DINO trainer. Use "npy" to keep the legacy path.
-  # Z: !Warning! not used
   loader: "jpg"
 
 # ----------------------------------------------------------------------

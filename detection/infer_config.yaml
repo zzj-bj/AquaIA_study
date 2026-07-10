@@ -8,7 +8,6 @@ run:
 
 data:
   test_data_root: "datasets/coco_custom_match"
-  # Z: !Warning! not used
   loader: "jpg"
   # Z: only for DINO, YOLO uses test
   split: "train"

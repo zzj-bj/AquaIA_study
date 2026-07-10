@@ -26,7 +26,6 @@ def get_datasets(
     batch_size,
     device,
     img_size=640,
-    # Z: !Warning! not used
     loader="jpg",
 ):
     """Z: Create the training and validation datasets, return train_dataset, val_dataset, num_classes.
@@ -107,7 +106,6 @@ def train_dino(config, resume_dir=None):
         training_config["batch"],
         device=device,
         img_size=imgsz,
-        # Z: !Warning! not used
         loader=config["data"].get("loader", "jpg"),
     )
 
@@ -395,7 +393,6 @@ def train_dino(config, resume_dir=None):
         subset=val_set,
         predict_fn=predict,
         output_dir=Path(run_dir) / "eval_predictions",
-        # Z: !Warning! hard coded
         conf=0.3,
         seed=42,
         device=device,
@@ -405,7 +402,6 @@ def train_dino(config, resume_dir=None):
         subset=train_set,
         predict_fn=predict,
         output_dir=Path(run_dir) / "train_predictions",
-        # Z: !Warning! not cohrent with training_config.get("conf_thresh", 0.05)
         conf=training_config.get("conf", 0.3),
         seed=42,
         device=device,
