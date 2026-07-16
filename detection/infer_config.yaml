@@ -8,13 +8,15 @@ run:
 
 data:
   test_data_root: "datasets/coco_custom_match"
-  loader: "jpg"
   # Z: only for DINO, YOLO uses test
-  split: "train"
+  split: "test"
 
 inference:
   batch: 8
   imgsz : 640
+  # Confidence threshold for mAP calculation
+  conf_thresh: 0.05
+  # Confidence threshold for bbox filtering
   conf: 0.3
   # Z: nb samples for visualization !Warning! not used
   num_samples: 20

@@ -26,12 +26,14 @@ from common_dinov3 import DinoV3Classifier
 # =========================
 # CONFIG
 # =========================
-# Z: checkpoint folder to be used for inference
-RUN_DIR = Path("/home/sarah.laroui/Bureau/AQUA-IA/Python_code/Results/test_dinov3/focal_none/")
-CHECKPOINT_NAME = "best.pt"
 
-# Z: input directory for inference
-INPUT_DIR = Path("/home/sarah.laroui/Bureau/AQUA-IA/Python_code/Data/AQUA-IA_dataset/FIN-Benthic_clean_splited/test")
+import os
+
+RUN_DIR = Path(os.environ.get("RUN_DIR", "/home/sarah.laroui/Bureau/AQUA-IA/Python_code/Results/test_dinov3/unfreeze1/focal_05/20260602-115513"))
+
+INPUT_DIR = Path(os.environ.get("DATA_DIR", "/home/sarah.laroui/Bureau/AQUA-IA/Python_code/Data/Datasets/AQUA-IA_dataset_mars2026_splited/test"))
+
+CHECKPOINT_NAME = "best.pt"
 
 LABELED_BY_SUBFOLDER = True
 
@@ -203,8 +205,7 @@ class LabeledFolderDataset(Dataset):
             cls_dir = root / cls_name
             if not cls_dir.exists():
                 continue
-            # Z: for each file in the class directory
-            for p in cls_dir.iterdir():
+            for p in sorted(cls_dir.iterdir()):
                 if p.is_file() and p.suffix.lower() in EXTS:
                     self.samples.append((p, cls_idx))
 
@@ -264,7 +265,7 @@ def predict_labeled(model, loader, criterion, device, use_amp: bool):
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
 
-        with torch.cuda.amp.autocast(enabled=(use_amp and device.type == "cuda")):
+        with torch.amp.autocast("cuda", enabled=(use_amp and device.type == "cuda")):
             logits = model(x)
             loss = criterion(logits, y)
             # Z: probs = softmax(logits) in class dimension

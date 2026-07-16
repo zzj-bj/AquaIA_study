@@ -26,7 +26,6 @@ def get_datasets(
     batch_size,
     device,
     img_size=640,
-    loader="jpg",
 ):
     """Z: Create the training and validation datasets, return train_dataset, val_dataset, num_classes.
     It chooses different dataset implementations depending on whether the current environment supports DALI."""
@@ -106,7 +105,6 @@ def train_dino(config, resume_dir=None):
         training_config["batch"],
         device=device,
         img_size=imgsz,
-        loader=config["data"].get("loader", "jpg"),
     )
 
     # === Setup dataloaders ===
@@ -393,7 +391,7 @@ def train_dino(config, resume_dir=None):
         subset=val_set,
         predict_fn=predict,
         output_dir=Path(run_dir) / "eval_predictions",
-        conf=0.3,
+        conf=training_config.get("conf", 0.3),
         seed=42,
         device=device,
     )

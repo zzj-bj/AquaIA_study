@@ -23,8 +23,7 @@ def build_parser():
     # Z: bind a default handler to the "train" subcommand
     train_parser.set_defaults(command_handler=handle_train)
 
-    # Z: !Warning! helper msg fault
-    test_parser = subparsers.add_parser("infer", help="Run inference on train and test samples")
+    test_parser = subparsers.add_parser("infer", help="Run inference on the specified dataset and split")
     test_parser.add_argument("--config", type=str, default=os.path.join("detection", "infer_config.yaml"))
     test_parser.set_defaults(command_handler=handle_test)
 

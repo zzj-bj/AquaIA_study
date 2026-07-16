@@ -13,8 +13,6 @@ model:
 data:
   # Dataset path consumed by the DINO trainer.
   dataset_yaml: "datasets/coco_custom_match"
-  # Image loader used by the DINO trainer. Use "npy" to keep the legacy path.
-  loader: "jpg"
 
 # ----------------------------------------------------------------------
 # Output section: training artifact handling
@@ -143,6 +141,9 @@ training:
   close_mosaic: 40
 
   # ---------- INFERENCE / EVAL-RELATED ----------
+  # Confidence threshold for mAP calculation
+  conf_thresh: 0.05
+  # Confidence threshold for bbox filtering
   # Z: DINO uses it to filter training-set visualization predictions
   # Z: YOLO uses it as the confidence threshold during validation
   conf: 0.3

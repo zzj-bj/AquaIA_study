@@ -9,11 +9,12 @@ import random
 # Z: to parse strings
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import torch
 import torch.nn as nn
 import numpy as np
+import os
 
 # Z: to instantiate models' architecture and load pretrained weights
 from transformers import AutoModel
@@ -52,25 +53,24 @@ def get_env_info() -> Dict:
 
 
 # ---------- Freeze / unfreeze ----------
-# Z: to infer block indices from parameter names (Ex ".encoder.layers.3." -> 3)
-def infer_block_index(name: str) -> Optional[int]:
+def infer_block_index(name: str):
     patterns = [
-        # Z: Ex .encoder.layers.3.
-        r"\.encoder\.layers\.(\d+)\.",
-        # Z: Ex .encoder.layer.3.
-        r"\.encoder\.layer\.(\d+)\.",
-        # Z: Ex .layers.3.
-        r"\.layers\.(\d+)\.",
-        # Z: Ex .layer.3.
+        r"^layer\.(\d+)\.",
+        r"^layers\.(\d+)\.",
+        r"^block\.(\d+)\.",
+        r"^blocks\.(\d+)\.",
         r"\.layer\.(\d+)\.",
-        # Z: Ex .blocks.3.
+        r"\.layers\.(\d+)\.",
+        r"\.block\.(\d+)\.",
         r"\.blocks\.(\d+)\.",
     ]
+
     for p in patterns:
         m = re.search(p, name)
         if m:
             # Z: return the group 1 (the first parenthesis)
             return int(m.group(1))
+
     return None
 
 
@@ -112,14 +112,20 @@ def unfreeze_last_n_blocks(backbone: nn.Module, n: int) -> int:
 # ---------- Model ----------
 class DinoV3Classifier(nn.Module):
     """
-    Backbone DINOv3 (Transformers AutoModel) + head linéaire.
+    Backbone DINOv3 (Transformers AutoModel) + tête linéaire.
+    Le token Hugging Face est lu depuis la variable d'environnement HF_TOKEN.
     """
 
     def __init__(self, model_id: str, num_classes: int, dropout: float = 0.0):
         super().__init__()
         self.model_id = model_id
-        self.backbone = AutoModel.from_pretrained(model_id)
-        # Z: model uses a tensor of dimension [hidden] to represent a CLS or a patch
+
+        hf_token = os.environ.get("HF_TOKEN")
+        if hf_token is None:
+            raise ValueError("La variable d'environnement HF_TOKEN n'est pas définie. Elle est nécessaire pour accéder au modèle Hugging Face.")
+
+        self.backbone = AutoModel.from_pretrained(model_id, token=hf_token)
+
         hidden = self.backbone.config.hidden_size
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
         self.head = nn.Linear(hidden, num_classes)
