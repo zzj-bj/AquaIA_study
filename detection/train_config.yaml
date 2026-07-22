@@ -104,41 +104,43 @@ training:
 
   # Color jitter in HSV space.
   # Z: only for YOLO
-  hsv_h: 0.015
+  hsv_h: 0.005
   # Z: only for YOLO
-  hsv_s: 0.7
+  hsv_s: 0.1
   # Z: only for YOLO
-  hsv_v: 0.4
+  hsv_v: 0.1
 
   # Geometric transforms.
   # Z: only for YOLO
-  degrees: 10.0
+  degrees: 180.0
   # Z: only for YOLO
-  translate: 0.10
+  translate: 0.1
   # Z: only for YOLO
-  scale: 0.50
+  scale: 0.2
   # Z: only for YOLO
-  shear: 2.0
+  shear: 1.0
   # Z: only for YOLO
   perspective: 0.0005
 
   # Flips.
   # Z: only for YOLO
-  flipud: 0.0
+  flipud: 0.5
   # Z: only for YOLO
   fliplr: 0.5
 
   # Advanced augmentations.
   # Z: only for YOLO
-  mosaic: 0.80
+  #bgr: 0.0
+  # Z: only for YOLO
+  mosaic: 0.1
   # Z: only for YOLO
   mixup: 0.05
   # Z: only for YOLO
-  copy_paste: 0.0     # mainly for segmentation, harmless here
+  cutmix: 0.05
 
   # Disable mosaic in the last N epochs to stabilize training.
   # Z: only for YOLO
-  close_mosaic: 40
+  close_mosaic: 20
 
   # ---------- INFERENCE / EVAL-RELATED ----------
   # Confidence threshold for mAP calculation
