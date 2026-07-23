@@ -39,6 +39,7 @@ def predict(model, samples, device, conf_thres, imgsz=640):
     pred_logits = outputs["pred_logits"].float()
 
     _, _, height, width = inputs.shape
+    # Z: [B, num_queries], [B, num_queries]
     scores, labels = pred_logits.sigmoid().max(dim=-1)
     preds = []
     for i in range(inputs.shape[0]):
