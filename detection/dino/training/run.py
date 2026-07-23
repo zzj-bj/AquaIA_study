@@ -267,14 +267,14 @@ def train_dino(config, resume_dir=None):
                         # Z: DALI: batch = { "inputs": Tensor[B, 3, H, W], "targets_idx": Tensor or DALI output }
                         # Z: targets =[ {"labels": ..., "boxes": ...}, {"labels": ..., "boxes": ...}, ...]
                         targets = loader.dataset.get_targets(batch)
-                        images, _ = parse_batch(batch)
+                        inputs, _ = parse_batch(batch)
 
                         if not DALI_AVAILABLE:
-                            images = images.to(device, non_blocking=True)
+                            inputs = inputs.to(device, non_blocking=True)
 
                         with torch.autocast(device_type=device, dtype=torch.float16, enabled=use_amp):
                             # Z: outputs = { "pred_logits": tensor(...), "pred_boxes": tensor(...), }
-                            outputs = model(images)
+                            outputs = model(inputs)
                             # Z: loss_dict = { "loss_ce": ..., "class_error": ..., "loss_bbox": ...,
                             # Z: "loss_giou": ..., "cardinality_error": ... } batch level
                             loss_dict = criterion(outputs, targets)

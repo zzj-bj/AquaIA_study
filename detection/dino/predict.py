@@ -27,22 +27,21 @@ def predict(model, samples, device, conf_thres, imgsz=640):
     # - a dict returned by sample_dataset() for visualization
     # - a dataloader batch for metric evaluation.
     # Z: [B, 3, H, W]
-    images = samples["inputs"]
-    images = images.to(device, non_blocking=True)
+    inputs = samples["inputs"]
+    inputs = inputs.to(device, non_blocking=True)
     # Z: Run inference with autocast for mixed precision
     with torch.autocast(device_type=device, dtype=torch.float16, enabled=device != "cpu"):
-        outputs = model(images)
+        outputs = model(inputs)
 
     # Z: [B, num_queries, 4]
     pred_boxes = outputs["pred_boxes"].float()
     # Z: [B, num_queries, num_classes]
     pred_logits = outputs["pred_logits"].float()
 
-    _, _, height, width = images.shape
-    # Z: [B, num_queries], [B, num_queries]
+    _, _, height, width = inputs.shape
     scores, labels = pred_logits.sigmoid().max(dim=-1)
     preds = []
-    for i in range(images.shape[0]):
+    for i in range(inputs.shape[0]):
         boxes_xyxy = box_cxcywh_to_xyxy(pred_boxes[i]).clamp(0, 1)
         # Z: Scale boxes to original image size
         boxes_xyxy[:, [0, 2]] *= width

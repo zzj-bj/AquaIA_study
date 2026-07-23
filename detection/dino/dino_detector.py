@@ -63,25 +63,25 @@ class DINODetector(nn.Module):
         else:
             raise NotImplementedError("LoRA fine-tuning not implemented yet, set lora_ft to False for now")
 
-    def _forward_backbone(self, images):
+    def _forward_backbone(self, inputs):
         # Feed input to backbone and extract features
         # Z: lora_ft = True -> need grad, lora_ft = False -> no grad
         with torch.set_grad_enabled(self.lora_ft):
             # Z: if lora_ft = False, backbone not trained
             # Z: Return outputs following the DINOv3's training path, richer results
-            features = self.backbone(images, is_training=True)["x_norm_patchtokens"]  # (B, H*W, C)
+            features = self.backbone(inputs, is_training=True)["x_norm_patchtokens"]  # (B, H*W, C)
         # Z: expand PE to batch size
         return features, self.pe.unsqueeze(0).expand(features.shape[0], -1, -1)  # (B, H*W, 2*num_pos_feats) add batch dimension with broadcasting
 
-    def forward(self, images):
-        if images.device.type == "cuda":
+    def forward(self, inputs):
+        if inputs.device.type == "cuda":
             # Z: if GPU then flash attention or efficient attention else normal math attention
             # Z: the choice depends on pytorch itself
             backends = [attn.SDPBackend.FLASH_ATTENTION, attn.SDPBackend.EFFICIENT_ATTENTION]
         else:
             backends = [attn.SDPBackend.MATH]
         with torch.nn.attention.sdpa_kernel(backends=backends):
-            embeddings, pe = self._forward_backbone(images)
+            embeddings, pe = self._forward_backbone(inputs)
             out = self.detector(embeddings, pe)
         # Z: out = dict with keys "pred_logits", "pred_boxes", "aux_outputs" (if aux_loss=True)
         return out
