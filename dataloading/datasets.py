@@ -24,26 +24,29 @@ from detection.utils.config_utils import load_class_names
 def create_detection_pipeline(dataset_src, stats, img_size=640, device="gpu"):
     """Z: DALI data preprocessing pipeline, used to read, decode, resize, and normalize JPG images
     then output them for training. One image treatement pipeline.
-    DALI decode, resize, mean/std normalize, PyTorch CHW tensor (inputs)
+    DALI decode, resize, mean/std normalize, PyTorch CHW tensor (inputs).
+    Returns inputs, labels, boxes on GPU, idx on CPU.
     """
     # Z: external_source() gets data from outside of DALI pipeline
     # Z: here dataset_src = self.dataset.__call__ = JpgDALIDataset.__call__
-    # Z: and JpgDALIDataset.__call__() returns a tuple of (encoded_img, idx)
-    # Z: encoded = encoded image, idx = index of the image in the dataset
-    encoded, idx = fn.external_source(
+    # Z: and JpgDALIDataset.__call__() returns a tuple of (encoded_img, labels, boxes, idx)
+    # Z: encoded = encoded image, labels = class labels, boxes = bbox coords, idx = index of image in dataset
+    encoded, labels, boxes, idx = fn.external_source(
         source=dataset_src,
-        # Z: external source returns two outputs, encoded image and index
-        num_outputs=2,
+        # Z: external source returns 4 outputs
+        num_outputs=4,
         # Z: external source returns one sample at a time not a batch
         batch=False,
         # Z: external source can be called in parallel by multiple threads
         parallel=True,
-        dtype=[types.UINT8, types.INT64],
+        dtype=[types.UINT8, types.INT64, types.FLOAT, types.INT64],
+        # Z: nb dim of each output
+        ndim=[1, 1, 2, 1],
     )
     # Z: mixed = read/prepare on CPU, decode on GPU
     decoding_device = "mixed" if device == "gpu" else device
     # TODO : add cache/padding to the decoding part to avoid memory re-allocation
-    # Z: decode images to RGB
+    # Z: decode images to RGB, images on GPU after decoding
     images = fn.decoders.image(encoded, device=decoding_device, output_type=types.RGB)
     images = fn.resize(
         images,
@@ -51,7 +54,7 @@ def create_detection_pipeline(dataset_src, stats, img_size=640, device="gpu"):
         resize_y=img_size,
         device=device,
     )
-    # Z: transform to float, mean/std normalize, from HWC to CHW
+    # Z: transform to float, mean/std normalize, from HWC to CHW, on GPU
     inputs = fn.crop_mirror_normalize(
         images,
         device=device,
@@ -60,25 +63,25 @@ def create_detection_pipeline(dataset_src, stats, img_size=640, device="gpu"):
         mean=stats["mean"],
         std=stats["std"],
     )
+    # Z: move labels and boxes to GPU
+    if device == "gpu":
+        labels = labels.gpu()
+        boxes = boxes.gpu()
     # Z: inputs is DALI tensor
-    return inputs, idx
+    return inputs, labels, boxes, idx
 
 
 class BaseDetectionDataset:
     """
-    Base class shared by NPY / PIL / RAM datasets.
-
-    Handles:
-    - label loading
-    - statistics (mean/std)
-    - normalization
-
-    Z: This class handles dataset metadata and target loading:
-    - loads normalization statistics from stats.npy converted to [0 - 255]
+    Base class shared by non-DALI and DALI dataset implementations.
+    This class handles dataset metadata and target loading:
+    - loads normalization statistics from stats.npy and scales them from [0, 1] to [0, 255] pixel units
     - loads class names and number of classes
     - builds a sorted list of label files
     - parses YOLO-format label files into class labels and bounding boxes
     - stores targets as torch tensors rather than DALI tensors
+    - returns cloned targets to avoid modifying the cached source targets
+    - no CPU/CUDA/GPU transfer in this base class
 
     For the non-DALI path, it also provides helpers to:
     - convert numpy images to torch tensors
@@ -99,8 +102,6 @@ class BaseDetectionDataset:
         self.load_stats()
         self.class_names, self.num_classes = load_class_names(dataset_root)
         self.device = device
-        # Load targets to device directly to avoid repeated memcpy
-        # We do not need to think about targets device at all after this11
         self.load_targets()
 
         # if not (self.dataset_root / self.data_split).exists():
@@ -170,27 +171,23 @@ class BaseDetectionDataset:
                     boxes.append(bbox)
         # TODO : clean up, dict struct is not longer necessary
         return {
-            "labels": torch.tensor(labels, dtype=torch.int64).to(self.device),
-            "boxes": torch.tensor(boxes, dtype=torch.float32).reshape(-1, 4).to(self.device),
+            "labels": torch.tensor(labels, dtype=torch.int64),
+            "boxes": torch.tensor(boxes, dtype=torch.float32).reshape(-1, 4),
         }
 
     def load_targets(self) -> None:
-        """Z: load label files, parse targets, store as tensors on the specified device."""
+        """Z: load label files, parse targets, store as torch tensors.
+        A dict per sample with keys "labels" and "boxes". A list of dicts for all samples."""
         self.target_files = self.get_sorted_target_files()
         if not self.target_files:
             raise FileNotFoundError(f"No label files found under {self.dataset_root / 'labels' / self.data_split}")
         self.targets = [self.read_target(path) for path in self.target_files]
 
-    def get_targets(self, batch) -> List[dict]:
-        """Z: get targets (label bbox) for a batch of samples accroding to image indices.
-        Used by DALI and non-DALI situations because only "targets_idx" is returned by batches."""
+    def copy_target(self, idx: int) -> dict:
+        """Z: clone and return target (label+bbox) at an index to avoid modifying source target.
+        A dict per sample with keys "labels" and "boxes"."""
         # Z: not called in actual class
-        # Z: DALIRaggedIterator sometimes returns a list, where the first element is the actual batch dict
-        if isinstance(batch, list):
-            batch = batch[0]
-        # Z: DALI pipeline only returns DALI tensors and indices
-        # Z: return labels and bounding boxes for each image
-        return [self.targets[idx] for idx in batch["targets_idx"]]
+        return {key: value.clone() for key, value in self.targets[idx].items()}
 
     def normalize_img(self, img: torch.Tensor) -> torch.Tensor:
         """Z: mean/std normalize image tensor. Only for non-DALI situations."""
@@ -253,7 +250,7 @@ class JpgDALIDataset(BaseDetectionDataset):
         return torch.from_dlpack(tensor.evaluate().data)
 
     def __call__(self, sample_info):
-        """Z: called by DALI's external_source to get a sample (encoded image bytes and index)."""
+        """Z: called by DALI's external_source to get a sample (encoded image bytes, labels, boxes, index)."""
         # Z: get sample's position in actual epoch from sample_info given by DALI
         sample_idx = sample_info.idx_in_epoch
         if sample_info.iteration >= self.full_iterations:
@@ -269,13 +266,19 @@ class JpgDALIDataset(BaseDetectionDataset):
                 self.perm = self.perm.permutation(self.indices)
         # Z: find the true dataset index based on the current sample's position in the epoch
         idx = self.perm[sample_idx]
-        # Z: get image file name without extention
+        # Z: get image file name without extension
         img_id = self.target_files[idx].stem
         img_path = self.img_dir / f"{img_id}.{self.img_format}"
         # Encoded image bytes. DALI will decode this on the GPU.
         # Z: read original binary image bytes from disk and convert to numpy array of uint8
         encoded_img = np.frombuffer(img_path.read_bytes(), dtype=np.uint8)
-        return encoded_img, np.array([idx])
+        target = self.targets[idx]
+        return (
+            encoded_img,
+            target["labels"].numpy(),
+            target["boxes"].numpy(),
+            np.array([idx], dtype=np.int64),
+        )
 
     def __getitem__(self, key):
         # Slow but useful for sampling a few images for visualization / testing
@@ -294,6 +297,7 @@ class JpgDALIDataset(BaseDetectionDataset):
         mean = self.stats["mean"].astype(np.float32).tolist()
         std = self.stats["std"].astype(np.float32).tolist()
 
+        # Z: decode images to RGB
         img = ndd.decoders.image(encoded_img, device=decoding_device, output_type=types.RGB)
         img = ndd.resize(
             img,
@@ -301,7 +305,7 @@ class JpgDALIDataset(BaseDetectionDataset):
             resize_y=float(self.img_size),
             device=device,
         )
-        # Z: transform to float, mean/std normalize, and change layout from HWC to CHW
+        # Z: transform to float, mean/std normalize, from HWC to CHW
         norm_img = ndd.crop_mirror_normalize(
             img,
             device=device,
@@ -310,13 +314,14 @@ class JpgDALIDataset(BaseDetectionDataset):
             mean=mean,
             std=std,
         )
-        # Z: convert DALI tensor to CHW PyTorch tensor
+        # Z: convert DALI tensor to CHW PyTorch tensor, on CPU
         img = self._dali_tensor_to_torch(img).cpu().permute(2, 0, 1)
-        # Z: norm_img is already in CHW format
+        # Z: norm_img is already in CHW format, on GPU
         norm_img = self._dali_tensor_to_torch(norm_img)
         sample = {
             "image": img,
             "input": norm_img,
+            "target": self.copy_target(idx),
             "target_idx": idx,
             "img_path": str(img_path),
         }
@@ -326,7 +331,7 @@ class JpgDALIDataset(BaseDetectionDataset):
 class JpgDetectionDataset(BaseDetectionDataset):
     """Z: This class is used for non-DALI situations, where images are loaded and processed using PIL and NumPy.
     One image. JPG bytes, PIL decode, resize, CHW pytorch tensor (sample["image"]),
-    mean/std normalize (sample["input"])."""
+    mean/std normalize (sample["input"]). No CPU/CUDA/GPU transfer in this class."""
     def __init__(
         self,
         dataset_root: str,
@@ -348,10 +353,10 @@ class JpgDetectionDataset(BaseDetectionDataset):
         img = np.array(img, dtype=np.float32)
         img = self.to_tensor(img)
         norm_img = self.normalize_img(img)
-        # tgt = self.targets[idx]
         sample = {
             "image": img,
             "input": norm_img,
+            "target": self.copy_target(idx),
             "target_idx": idx,
             "img_path": str(img_path),
         }
@@ -385,11 +390,13 @@ class DALIDetectionDataLoader:
         self.pipeline.build()
         self.loader = DALIRaggedIterator(
             pipelines=[self.pipeline],
-            # Z: define outputs, batch["inputs"] et batch["targets_idx"]
-            output_map=["inputs", "targets_idx"],
-            # Z: declare two outputs are dense, each sample in a batch has same shape can be stacked into a tensor
+            # Z: define outputs, batch["inputs"] etc
+            output_map=["inputs", "labels", "boxes", "targets_idx"],
+            # Z: declare output types for each output, DALI tensor or list of DALI tensors
             output_types=[
                 DALIRaggedIterator.DENSE_TAG,
+                DALIRaggedIterator.SPARSE_LIST_TAG,
+                DALIRaggedIterator.SPARSE_LIST_TAG,
                 DALIRaggedIterator.DENSE_TAG,
             ],
             # Z: nb samples per epoch
@@ -406,33 +413,88 @@ class DALIDetectionDataLoader:
 
     def __iter__(self):
         # Z: define iteration behavior
-        return iter(self.loader)
+        for batch in self.loader:
+            if isinstance(batch, list):
+                batch = batch[0]
+            # Z: .pop() removes the key from the dict and returns its value
+            labels_batch = batch.pop("labels")
+            boxes_batch = batch.pop("boxes")
+            batch["targets"] = [
+                {"labels": labels, "boxes": boxes}
+                # Z: zip() pairs each labels and boxes from the batch together
+                for labels, boxes in zip(labels_batch, boxes_batch)
+            ]
+            # Z: yield means that this function is a generator, it will return a batch and pause until the next call to __next__()
+            # Z: { "inputs": ..., "targets_idx": ...,
+            # Z: "targets": [ {"labels": ..., "boxes": ...}, {"labels": ..., "boxes": ...}, ... ], }
+            yield batch
 
 
-def parse_batch(batch):
-    """Z: Extract the model input "inputs" from "batch" outputted by dataloader
-    and also extract the img_paths if any."""
+def parse_batch(batch, device=None):
+    """Z: extract model inputs and targets from a dataloader batch
+    and convert targets to a per-image list of dictionaries on the specified device.
+    If non DALI, moves labels and boxes to GPU."""
     if isinstance(batch, list):
         batch = batch[0]
     inputs = batch["inputs"]
-    # TODO : ugly but currently required. Need to modify downstream code to avoid this conversion
-    # targets = [{"labels": labels, "boxes": boxes} for labels, boxes in zip(batch["labels"], batch["bboxes"])]
-    return inputs, batch.get("img_paths", None)
+    targets = batch["targets"]
+
+    # Z: non DALI, detection_collate_fn() returns targets as a dict with keys "labels", "boxes", "counts"
+    if isinstance(targets, dict):
+        labels = targets["labels"]
+        boxes = targets["boxes"]
+        if device is not None:
+            # Z: move labels (all in one tensor) and boxes (all in one tensor) to device
+            labels = labels.to(device, non_blocking=True)
+            boxes = boxes.to(device, non_blocking=True)
+        # Z: split labels and boxes into per-image lists based on counts
+        labels_per_image = labels.split(targets["counts"])
+        boxes_per_image = boxes.split(targets["counts"])
+        # Z: reconstruct targets as a list of dicts, one per image, with keys "labels" and "boxes"
+        targets = [
+            {"labels": image_labels, "boxes": image_boxes}
+            for image_labels, image_boxes in zip(labels_per_image, boxes_per_image)
+        ]
+    # Z: DALI
+    elif device is not None:
+        targets = [
+            {
+                # Z: move each value in target dict to device if it's a tensor, otherwise keep it as is
+                key: value.to(device, non_blocking=True) if torch.is_tensor(value) else value
+                for key, value in target.items()
+            }
+            for target in targets
+        ]
+    # Z: inputs = torch.Tensor( shape=[B, 3, H, W], dtype=torch.float32, )
+    # Z: targets = [ { "labels": torch.Tensor( shape=[N_i], dtype=torch.int64, ),
+    # Z:                "boxes": torch.Tensor( shape=[N_i, 4], dtype=torch.float32, ), }, ... ]
+    return inputs, targets
 
 
 def sample_indices(dataset_size, num_samples, seed):
-    """Z: randomly sample some sample indices from the dataset and return them sorted"""
+    """Z: randomly sample some sample indices from the dataset and return them sorted."""
     rng = random.Random(seed)
     sample_size = min(num_samples, dataset_size)
     return sorted(rng.sample(range(dataset_size), sample_size))
 
 
 def detection_collate_fn(batch):
-    """Z: stack single sample into batch. Only for non-DALI situations."""
+    """Z: stack single sample into batch. Only for non-DALI situations.
+    No CPU/CUDA/GPU transfer."""
+    # Z: nb targets per image may vary, later use target_counts to re-split concatenated labels and boxes.
+    target_counts = [len(item["target"]["labels"]) for item in batch]
     collated_batch = {
         # Z: [B, 3, H, W]
         "images": torch.stack([item["image"] for item in batch], dim=0),
         "inputs": torch.stack([item["input"] for item in batch], dim=0),
+        "targets": {
+            # Z: concatenate the class labels of all images in the batch into a 1D tensor, [Nb targets of the batch]
+            "labels": torch.cat([item["target"]["labels"] for item in batch], dim=0),
+            # Z: concatenate the bbox of all images in the batch into a 2D tensor, [Nb targets of the batch, 4]
+            "boxes": torch.cat([item["target"]["boxes"] for item in batch], dim=0),
+            # Z: list of nb targets per image, [B]
+            "counts": target_counts,
+        },
         # Z: [indices]
         "targets_idx": [item["target_idx"] for item in batch],
         # Z: [paths]
@@ -442,8 +504,8 @@ def detection_collate_fn(batch):
 
 
 def sample_dataset(dataset, num_samples, seed, device):
-    """Z: randomly sample from dataset, return model input batch, visualization batch, image paths..
-    samples = {"inputs": inputs, "images": imgs, "img_paths": img_paths}"""
+    """Z: randomly sample from dataset, return model input batch, visualization batch, image paths.
+    samples = {"inputs": inputs, "images": imgs, "img_paths": img_paths}."""
     sampled_indices = sample_indices(len(dataset), num_samples, seed)
     # Z: get samples
     samples = [dataset[index] for index in sampled_indices]
@@ -454,19 +516,19 @@ def sample_dataset(dataset, num_samples, seed, device):
     return samples
 
 """
-===================
-Output informations
-===================
+==================
+Output information
+==================
 
 DALI training path:
-JpgDALIDataset.__call__ -> encoded_img, idx
-create_detection_pipeline -> inputs, idx
-DALIDetectionDataLoader -> inputs, targets_idx in batch
+JpgDALIDataset.__call__ -> encoded_img, labels, boxes, idx
+create_detection_pipeline -> inputs, labels, boxes, idx
+DALIDetectionDataLoader -> inputs, targets (labels, boxes), targets_idx in batch
 
 DALI __getitem__ path:
-JpgDALIDataset.__getitem__ -> image, input, target_idx, img_path
+JpgDALIDataset.__getitem__ -> image, input, target (labels, boxes), target_idx, img_path
 
 non-DALI path:
-JpgDetectionDataset.__getitem__ -> image, input, target_idx, img_path
-detection_collate_fn -> images, inputs, targets_idx, img_paths in batch
+JpgDetectionDataset.__getitem__ -> image, input, target (labels, boxes), target_idx, img_path
+detection_collate_fn -> images, inputs, targets (labels, boxes, counts), targets_idx, img_paths in batch
 """

@@ -29,8 +29,7 @@ def get_datasets(
 ):
     """Z: Create the training and validation datasets, return train_dataset, val_dataset, num_classes.
     It chooses different dataset implementations depending on whether the current environment supports DALI."""
-    # TODO : currently GPU only because of DALI, but should be possible to support CPU-only training)
-    # Compute random split for train and eval set
+    # Create datasets from the existing train and val splits
     if DALI_AVAILABLE:
         train_dataset = JpgDALIDataset(
             dataset_root=data_yaml_path,
@@ -262,12 +261,22 @@ def train_dino(config, resume_dir=None):
                 with torch.set_grad_enabled(training):
                     # Z: START for batch loop
                     for batch_idx, batch in enumerate(progress):
-                        # Z: Non-DALI: batch = { "images": Tensor[B, 3, H, W], "inputs": Tensor[B, 3, H, W],
-                        # Z: "targets_idx": list[int], "img_paths": list[str], }
-                        # Z: DALI: batch = { "inputs": Tensor[B, 3, H, W], "targets_idx": Tensor or DALI output }
-                        # Z: targets =[ {"labels": ..., "boxes": ...}, {"labels": ..., "boxes": ...}, ...]
-                        targets = loader.dataset.get_targets(batch)
-                        inputs, _ = parse_batch(batch)
+                        # Z: before parse_batch():
+                        # Z: non-DALI batch = {
+                        # Z:     "images": Tensor[B, 3, H, W],
+                        # Z:     "inputs": Tensor[B, 3, H, W],
+                        # Z:     "targets": {"labels": Tensor[N], "boxes": Tensor[N, 4], "counts": list[int]},
+                        # Z:     "targets_idx": list[int],
+                        # Z:     "img_paths": list[str],
+                        # Z: }
+                        # Z: DALI batch = {
+                        # Z:     "inputs": Tensor[B, 3, H, W],
+                        # Z:     "targets": list[{"labels": Tensor[N_i], "boxes": Tensor[N_i, 4]}],
+                        # Z:     "targets_idx": Tensor,
+                        # Z: }
+                        inputs, targets = parse_batch(batch, device=device)
+                        # Z: after parse_batch(), targets is a per-image list of dictionaries
+                        # Z: non-DALI inputs are still on CPU and must be moved to the training device
 
                         if not DALI_AVAILABLE:
                             inputs = inputs.to(device, non_blocking=True)
