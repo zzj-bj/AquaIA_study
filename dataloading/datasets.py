@@ -419,11 +419,8 @@ class DALIDetectionDataLoader:
             # Z: .pop() removes the key from the dict and returns its value
             labels_batch = batch.pop("labels")
             boxes_batch = batch.pop("boxes")
-            batch["targets"] = [
-                {"labels": labels, "boxes": boxes}
-                # Z: zip() pairs each labels and boxes from the batch together
-                for labels, boxes in zip(labels_batch, boxes_batch)
-            ]
+            # Z: zip() pairs each labels and boxes from the batch together
+            batch["targets"] = [{"labels": labels, "boxes": boxes} for labels, boxes in zip(labels_batch, boxes_batch)]
             # Z: yield means that this function is a generator, it will return a batch and pause until the next call to __next__()
             # Z: { "inputs": ..., "targets_idx": ...,
             # Z: "targets": [ {"labels": ..., "boxes": ...}, {"labels": ..., "boxes": ...}, ... ], }
@@ -451,20 +448,11 @@ def parse_batch(batch, device=None):
         labels_per_image = labels.split(targets["counts"])
         boxes_per_image = boxes.split(targets["counts"])
         # Z: reconstruct targets as a list of dicts, one per image, with keys "labels" and "boxes"
-        targets = [
-            {"labels": image_labels, "boxes": image_boxes}
-            for image_labels, image_boxes in zip(labels_per_image, boxes_per_image)
-        ]
+        targets = [{"labels": image_labels, "boxes": image_boxes} for image_labels, image_boxes in zip(labels_per_image, boxes_per_image)]
     # Z: DALI
     elif device is not None:
-        targets = [
-            {
-                # Z: move each value in target dict to device if it's a tensor, otherwise keep it as is
-                key: value.to(device, non_blocking=True) if torch.is_tensor(value) else value
-                for key, value in target.items()
-            }
-            for target in targets
-        ]
+        # Z: move each value in target dict to device if it's a tensor, otherwise keep it as is
+        targets = [{key: value.to(device, non_blocking=True) if torch.is_tensor(value) else value for key, value in target.items()} for target in targets]
     # Z: inputs = torch.Tensor( shape=[B, 3, H, W], dtype=torch.float32, )
     # Z: targets = [ { "labels": torch.Tensor( shape=[N_i], dtype=torch.int64, ),
     # Z:                "boxes": torch.Tensor( shape=[N_i, 4], dtype=torch.float32, ), }, ... ]
