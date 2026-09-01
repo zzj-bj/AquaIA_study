@@ -81,7 +81,6 @@ class BaseDetectionDataset:
     - parses YOLO-format label files into class labels and bounding boxes
     - stores targets as torch tensors rather than DALI tensors
     - returns cloned targets to avoid modifying the cached source targets
-    - no CPU/CUDA/GPU transfer in this base class
 
     For the non-DALI path, it also provides helpers to:
     - convert numpy images to torch tensors
