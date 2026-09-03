@@ -4,7 +4,7 @@
 model:
   family: "dinov3"
   size : "small"
-  # Z: DINO uses it to create output dir, YOLO uses it to load .pt or .yaml
+  # DINO uses it to create output dir, YOLO uses it to load .pt or .yaml
   init: "pretrained"   # "pretrained" or "random"
 
 # ----------------------------------------------------------------------
@@ -19,13 +19,13 @@ data:
 # ----------------------------------------------------------------------
 output:
   # Root directory for run folders. Each run creates output/{YYYYMMDD_HHMMSS}/.
-  # Z: !Warning! not used, overided by load_train_config()
+  # !Warning! not used, overided by load_train_config()
   project: "runs"
-  # Z: only for YOLO
+  # Only for YOLO
   exist_ok: true
-  # Z: only for YOLO
+  # Only for YOLO
   save_period: 0
-  # Z: only for YOLO
+  # Only for YOLO
   plots: true
 
 # ----------------------------------------------------------------------
@@ -33,13 +33,13 @@ output:
 # ----------------------------------------------------------------------
 logging:
   # Save last.pt + last_training_state.pt every N epochs (0 = only at end).
-  # Z: only for DINO
+  # Only for DINO
   save_period: 5
   # Update the heartbeat file every N batches.
-  # Z: only for DINO
+  # Only for DINO
   heartbeat_every_n_batches: 10
   # Path to the global run registry (one JSON line per run).
-  # Z: only for DINO
+  # Only for DINO
   registry_path: "runs/registry.jsonl"
 
 # ----------------------------------------------------------------------
@@ -47,9 +47,9 @@ logging:
 # ----------------------------------------------------------------------
 training:
   # ---------- CORE TASK / MODE ----------
-  # Z: both use it to create output dir, YOLO uses it to specify the training task
+  # Both use it to create output dir, YOLO uses it to specify the training task
   task: "detect"
-  # Z: only for YOLO
+  # Only for YOLO
   mode: "train"
 
   # ---------- DEVICE ----------
@@ -58,38 +58,38 @@ training:
   # ---------- DATA INPUT / LOADING ----------
   imgsz: 640
   batch: 32
-  # Z: only for YOLO
-  workers: 0
+  # Number of PyTorch DataLoader workers used by DINO and YOLO
+  workers: 3
 
   # ---------- TRAINING SCHEDULE ----------
   epochs: 10
-  # Z: if cos_lr, warmup steps = epochs * warmup_ratio 
-  # Z: only for DINO
+  # If cos_lr, warmup steps = epochs * warmup_ratio 
+  # Only for DINO
   warmup_ratio: 0.05
 
   # ---------- OPTIMIZER & LR ----------
   optimizer: "AdamW"
   lr0: 0.0005
-  # Z: min lr for cosine scheduler = lrf * lr0
+  # Min lr for cosine scheduler = lrf * lr0
   lrf: 0.05
   cos_lr: true
-  # Z: weight decay for optimizer
+  # Weight decay for optimizer
   weight_decay: 0.00005
 
   # ---------- LOSS / MATCHER HYPERPARAMETERS ----------
-  # Z: weights for class, bbox, giou in matching cost
-  # Z: only for DINO
+  # Weights for class, bbox, giou in matching cost
+  # Only for DINO
   cost_class: 2.0
-  # Z: only for DINO
+  # Only for DINO
   cost_bbox: 5.0
-  # Z: only for DINO
+  # Only for DINO
   cost_giou: 2.0
-  # Z: only for DINO
+  # Only for DINO
   cost_bbox_type: "l1"
-  # Z: weights for class, bbox, giou in loss
+  # Weights for class, bbox, giou in loss
   cls: 4.0
   box: 5.0
-  # Z: only for DINO
+  # Only for DINO
   giou: 2.0
 
   # ---------- LOSS / BOX / CLS HYPERPARAMETERS ----------
@@ -103,58 +103,40 @@ training:
   augment: true
 
   # Color jitter in HSV space.
-  # Z: only for YOLO
   hsv_h: 0.005
-  # Z: only for YOLO
   hsv_s: 0.1
-  # Z: only for YOLO
   hsv_v: 0.1
 
   # Geometric transforms.
-  # Z: only for YOLO
   degrees: 180.0
-  # Z: only for YOLO
   translate: 0.1
-  # Z: only for YOLO
   scale: 0.2
-  # Z: only for YOLO
-  shear: 1.0
-  # Z: only for YOLO
-  perspective: 0.0005
 
   # Flips.
-  # Z: only for YOLO
   flipud: 0.5
-  # Z: only for YOLO
   fliplr: 0.5
 
   # Advanced augmentations.
-  # Z: only for YOLO
-  #bgr: 0.0
-  # Z: only for YOLO
   mosaic: 0.1
-  # Z: only for YOLO
-  mixup: 0.05
-  # Z: only for YOLO
   cutmix: 0.05
 
-  # Disable mosaic in the last N epochs to stabilize training.
-  # Z: only for YOLO
-  close_mosaic: 20
+  # Disable Mosaic and CutMix in the last N epochs
+  # Values greater than or equal to epochs disable them from the first epoch
+  close_mosaic: 5
 
   # ---------- INFERENCE / EVAL-RELATED ----------
   # Confidence threshold for mAP calculation
   conf_thresh: 0.05
   # Confidence threshold for bbox filtering
-  # Z: DINO uses it to filter training-set visualization predictions
-  # Z: YOLO uses it as the confidence threshold during validation
+  # DINO uses it to filter training-set visualization predictions
+  # YOLO uses it as the confidence threshold during validation
   conf: 0.3
-  # Z: only for YOLO
+  # Only for YOLO
   iou: 0.5
-  # Z: only for YOLO
+  # Only for YOLO
   val: true
 
   # ---------- PERFORMANCE / MISC ----------
-  # Z: torch.compile() attempts to optimize the model's forward computation graph
-  # Z: to make training or inference faster
+  # torch.compile() attempts to optimize the model's forward computation graph
+  # to make training or inference faster
   compile: true
